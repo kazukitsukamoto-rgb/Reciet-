@@ -685,29 +685,19 @@ function renderAIResult(errorMsg) {
   const cats=['食費','外食','交通費','日用品','その他'];
   const banner=errorMsg?`<div style="background:#FFF3CD;border:1px solid #FFEEBA;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#856404;">⚠️ ${escHtml(errorMsg)}</div>`:'';
 
-  // 金額フィールド：親 OR AIが不確かな場合 → 編集可 / それ以外の子供 → 表示のみ
-  const canEditAmount = isParentMode || !aiData.amountConfident;
-  const amountField = canEditAmount
-    ? `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-        ${!isParentMode && !aiData.amountConfident
-          ? `<span style="font-size:11px;color:#E65100;background:#FFF3CD;padding:2px 8px;border-radius:10px;margin-bottom:2px;">⚠️ AIが不確か — 確認してください</span>`
-          : ''}
-        <div style="display:flex;gap:4px;align-items:center;">
-          <input type="number" id="ai-amount" class="ai-input" step="0.01" value="${escHtml(String(aiData.amount))}">
-          <select id="ai-currency" class="ai-select">
-            <option value="SGD" ${aiData.currency==='SGD'?'selected':''}>SGD</option>
-            <option value="JPY" ${aiData.currency==='JPY'?'selected':''}>JPY</option>
-          </select>
-        </div>
-       </div>`
-    : `<div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--accent);">
-          ${aiData.currency==='SGD'?'$':'¥'}${escHtml(String(aiData.amount))}
-        </span>
-        <span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 8px;border-radius:10px;">🔒 親のみ変更可</span>
-        <input type="hidden" id="ai-amount" value="${escHtml(String(aiData.amount))}">
-        <input type="hidden" id="ai-currency" value="${escHtml(aiData.currency)}">
-       </div>`;
+  // 金額フィールド：全員編集可（子供が変更した場合は承認待ちになる）
+  const amountField = `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+      ${!isParentMode
+        ? `<span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 8px;border-radius:10px;margin-bottom:2px;">変更すると親の承認が必要です</span>`
+        : ''}
+      <div style="display:flex;gap:4px;align-items:center;">
+        <input type="number" id="ai-amount" class="ai-input" step="0.01" value="${escHtml(String(aiData.amount))}">
+        <select id="ai-currency" class="ai-select">
+          <option value="SGD" ${aiData.currency==='SGD'?'selected':''}>SGD</option>
+          <option value="JPY" ${aiData.currency==='JPY'?'selected':''}>JPY</option>
+        </select>
+      </div>
+     </div>`;
 
   rows.innerHTML=banner+`
     <div class="result-row"><span class="result-label">担当</span><span style="color:var(--accent);font-weight:bold;">${escHtml(aiData.owner)}</span></div>
