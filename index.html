@@ -569,24 +569,55 @@ function renderMonthly() {
 /* ===== EXCHANGE RATE WIDGET ===== */
 async function initRateWidget() {
   const body = document.getElementById('rate-body');
+  body.innerHTML = '<div class="rc-loading"><div class="spinner" style="margin:0 auto 8px;"></div>レート取得中...</div>';
+
+  // ① 現在レートを取得（Frankfurter → open.er-api.com の順でフォールバック）
+  let now = null, curDate = null;
+  try {
+    const r = await fetch('https://api.frankfurter.app/latest?from=SGD&to=JPY');
+    if (!r.ok) throw new Error('frankfurter error');
+    const d = await r.json();
+    now = d.rates.JPY; curDate = d.date;
+  } catch {
+    try {
+      const r = await fetch('https://open.er-api.com/v6/latest/SGD');
+      if (!r.ok) throw new Error('open.er-api error');
+      const d = await r.json();
+      now = d.rates.JPY;
+      curDate = new Date().toISOString().split('T')[0];
+    } catch {
+      body.innerHTML = `<div class="rc-loading" style="line-height:2;">
+        レート取得に失敗しました<br>
+        <button onclick="initRateWidget()" style="margin-top:8px;padding:8px 18px;background:var(--accent);color:white;border:none;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer;">↺ 再取得</button>
+      </div>`;
+      return;
+    }
+  }
+
+  // ② 過去データを取得（失敗してもOK — 現在レートだけ表示する）
   try {
     const d181 = new Date(); d181.setDate(d181.getDate()-181);
-    const [curRes, histRes] = await Promise.all([
-      fetch('https://api.frankfurter.app/latest?from=SGD&to=JPY'),
-      fetch(`https://api.frankfurter.app/${d181.toISOString().split('T')[0]}..?from=SGD&to=JPY`)
-    ]);
-    const curData  = await curRes.json();
+    const histRes = await fetch(`https://api.frankfurter.app/${d181.toISOString().split('T')[0]}..?from=SGD&to=JPY`);
+    if (!histRes.ok) throw new Error('hist error');
     const histData = await histRes.json();
-    const now = curData.rates.JPY;
     rateAllData = Object.entries(histData.rates)
       .map(([d,r])=>({ date:d, rate:r.JPY }))
       .sort((a,b)=>a.date.localeCompare(b.date));
-    // 当日分を追加
-    if (rateAllData[rateAllData.length-1]?.date !== curData.date)
-      rateAllData.push({ date:curData.date, rate:now });
+    if (rateAllData[rateAllData.length-1]?.date !== curDate)
+      rateAllData.push({ date:curDate, rate:now });
     renderRateWidget(90);
-  } catch(e) {
-    body.innerHTML = '<div class="rc-loading">取得エラー — ネット接続を確認してください</div>';
+  } catch {
+    // 過去データ取得失敗 → 現在レートだけ表示
+    rateAllData = [{ date:curDate, rate:now }];
+    body.innerHTML = `
+      <div class="rc-rate-row">
+        <div class="rc-rate-big">¥${now.toFixed(2)}</div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">1 SGD = 上記 JPY · ${curDate} 更新</div>
+      <div style="font-size:12px;color:var(--text3);text-align:center;padding:6px 0;">
+        グラフ用データが取得できませんでした
+        <button onclick="initRateWidget()" style="display:block;margin:8px auto 0;padding:7px 16px;background:var(--accent);color:white;border:none;border-radius:8px;font-family:inherit;font-size:12px;cursor:pointer;">↺ 再取得</button>
+      </div>`;
   }
 }
 
