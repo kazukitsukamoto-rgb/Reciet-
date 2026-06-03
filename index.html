@@ -336,8 +336,9 @@ let imageFile = null;
 let pendingImageData = null;
 let currentPersonFilter = '';
 let isParentMode  = false;
-let currentOwner  = null; // kid: 自分の名前 / parent: null
+let currentOwner  = null;
 let firestoreUnsubs = [];
+let parentLastRead = null; // 親が最後に一覧を見た時刻
 
 // ===== Google ログイン =====
 function signInWithGoogle() {
@@ -389,6 +390,7 @@ auth.onAuthStateChanged(user => {
 
     // Firestore 開始
     startFirestore();
+    if (isParentMode) loadParentLastRead();
   } else {
     document.getElementById('main-app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
@@ -421,6 +423,47 @@ function setupForm() {
   updateCurrencyDisplay();
 }
 
+// ===== 親の既読管理 =====
+async function loadParentLastRead() {
+  try {
+    const doc = await db.collection('meta').doc('parentRead').get();
+    if (doc.exists && doc.data().timestamp) {
+      parentLastRead = doc.data().timestamp.toDate();
+    }
+    updateListBadge();
+  } catch(e) { console.error(e); }
+}
+
+async function updateParentLastRead() {
+  parentLastRead = new Date();
+  try {
+    await db.collection('meta').doc('parentRead').set({
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch(e) { console.error(e); }
+  updateListBadge();
+}
+
+function isNewEntry(entry) {
+  if (!isParentMode) return false;
+  if (!entry.createdAt) return false;
+  const createdAt = entry.createdAt.toDate ? entry.createdAt.toDate() : new Date(entry.createdAt);
+  if (!parentLastRead) return true; // 一度も開いたことがない
+  return createdAt > parentLastRead;
+}
+
+function updateListBadge() {
+  if (!isParentMode) return;
+  const count = entries.filter(e => isNewEntry(e)).length;
+  const listTab = document.querySelectorAll('.tab')[2];
+  if (!listTab) return;
+  if (count > 0) {
+    listTab.innerHTML = `一覧<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle;">${count}</span>`;
+  } else {
+    listTab.textContent = '一覧';
+  }
+}
+
 // ===== 重複チェック =====
 function findDuplicate(date, payee, amount, currency) {
   return entries.find(e =>
@@ -439,6 +482,7 @@ function startFirestore() {
   const u1 = db.collection('receipts').orderBy('createdAt','desc').onSnapshot(snap => {
     entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     updateMonthFilter();
+    updateListBadge();
     const a = document.querySelector('#main-app .section.active')?.id;
     if (a === 'tab-list')    renderList();
     if (a === 'tab-monthly') renderMonthly();
@@ -485,7 +529,10 @@ function switchTab(t) {
     el.classList.toggle('active', ['add','monthly','list'][i] === t));
   document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-'+t).classList.add('active');
-  if (t === 'list')    renderList();
+  if (t === 'list') {
+    renderList();
+    if (isParentMode) updateParentLastRead(); // 一覧を開いたら既読に
+  }
   if (t === 'monthly') renderMonthly();
 }
 
@@ -747,11 +794,14 @@ function renderList() {
   list.innerHTML=filtered.map(e=>{
     const sym=e.currency==='SGD'?'$':'¥';
     const amt=e.currency==='SGD'?Number(e.amount).toFixed(2):Number(e.amount).toLocaleString('ja-JP');
+    const newBadge=isNewEntry(e)
+      ?`<span style="display:inline-block;background:#5A8A2E;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;letter-spacing:0.04em;">NEW</span>`
+      :'';
     const photoHtml=isParentMode&&e.imageData
       ?`<div class="entry-photo"><img src="${e.imageData}" alt="レシート" loading="lazy"></div>`
       :e.imageData?`<div class="photo-hint">📷 写真あり（親のみ表示）</div>`:'';
     const delBtn=isParentMode?`<button class="entry-del" onclick="deleteEntry('${e.id}')">×</button>`:'';
-    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${delBtn}</div>${photoHtml}</div>`;
+    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}${newBadge}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${delBtn}</div>${photoHtml}</div>`;
   }).join('');
 }
 
