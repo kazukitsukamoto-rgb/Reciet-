@@ -225,7 +225,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
         <div class="field-row">
           <div class="field"><label>日付</label><input type="date" id="f-date"></div>
           <div class="field" id="f-owner-wrap"><label>担当者</label>
-            <select id="f-owner">
+            <select id="f-owner" onchange="updateCurrencyDisplay()">
               <option value="Kensei">Kensei</option>
               <option value="Kazuki">Kazuki</option>
               <option value="Hirotaka">Hirotaka</option>
@@ -240,8 +240,8 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
               <option value="その他">その他</option>
             </select>
           </div>
-          <div class="field"><label>通貨</label>
-            <select id="f-currency"><option value="SGD">SGD ($)</option><option value="JPY">JPY (¥)</option></select>
+          <div class="field"><label>通貨（自動）</label>
+            <div id="f-currency-display" style="padding:12px 14px; background:var(--surface2); border-radius:var(--radius-sm); font-size:15px; color:var(--text2); min-height:48px; display:flex; align-items:center;">SGD ($)</div>
           </div>
         </div>
         <div class="field"><label>支払先</label><input type="text" id="f-payee" placeholder="例：FairPrice"></div>
@@ -395,19 +395,30 @@ auth.onAuthStateChanged(user => {
   }
 });
 
+// ===== 担当者から通貨を決定 =====
+function ownerToCurrency(owner) {
+  return owner === 'Hirotaka' ? 'JPY' : 'SGD';
+}
+
+// ===== 通貨表示を更新 =====
+function updateCurrencyDisplay() {
+  const owner = isParentMode ? document.getElementById('f-owner').value : currentOwner;
+  const isJPY = owner === 'Hirotaka';
+  document.getElementById('f-currency-display').textContent = isJPY ? 'JPY (¥)' : 'SGD ($)';
+}
+
 // ===== フォーム初期化 =====
 function setupForm() {
   document.getElementById('f-date').valueAsDate = new Date();
   const ownerWrap = document.getElementById('f-owner-wrap');
   const ownerSel  = document.getElementById('f-owner');
-  const curSel    = document.getElementById('f-currency');
   if (isParentMode) {
     ownerWrap.style.display = 'block';
   } else {
     ownerWrap.style.display = 'none';
     ownerSel.value = currentOwner;
-    curSel.value = currentOwner === 'Hirotaka' ? 'JPY' : 'SGD';
   }
+  updateCurrencyDisplay();
 }
 
 // ===== 重複チェック =====
@@ -584,7 +595,7 @@ async function analyzeReceipt(file, apiKey) {
         {role:'system',content:'あなたはレシートOCRの専門家です。指定されたJSON形式のみ返してください。'},
         {role:'user',content:[
           {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
-          {type:'text',text:`レシートを解析してJSONのみ返してください:\n{"payee":"店名","amount":数値,"currency":"SGD か JPY","date":"YYYY-MM-DD","category":"食費・外食・交通費・日用品・その他"}\n日付不明なら"${today}"。S$/SGD/英語→SGD、¥/円/日本語→JPY。`}
+          {type:'text',text:`レシートを解析してJSONのみ返してください:\n{"payee":"店名","amount":数値,"currency":"SGD か JPY","date":"YYYY-MM-DD","category":"食費・外食・交通費・日用品・その他","amount_confident":true}\n日付不明なら"${today}"。S$/SGD/英語→SGD、¥/円/日本語→JPY。\namount_confidentは合計金額が明確に読み取れた場合はtrue、不鮮明・複数の合計がある・読み取れない場合はfalse。`}
         ]}
       ]})
   });
@@ -594,7 +605,7 @@ async function analyzeReceipt(file, apiKey) {
   const m=text.match(/\{[\s\S]*?\}/);
   if(!m) throw new Error('JSONを取得できませんでした');
   const p=JSON.parse(m[0]);
-  return {date:p.date||today,payee:String(p.payee||''),amount:Number(p.amount)||0,cat:p.category||'食費',currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD')};
+  return {date:p.date||today,payee:String(p.payee||''),amount:Number(p.amount)||0,cat:p.category||'食費',currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'),amountConfident:p.amount_confident!==false};
 }
 function fileToBase64(file) {
   return new Promise((resolve,reject)=>{
@@ -611,14 +622,20 @@ function renderAIResult(errorMsg) {
   const cats=['食費','外食','交通費','日用品','その他'];
   const banner=errorMsg?`<div style="background:#FFF3CD;border:1px solid #FFEEBA;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#856404;">⚠️ ${escHtml(errorMsg)}</div>`:'';
 
-  // 金額フィールド：親は編集可、子供は表示のみ
-  const amountField = isParentMode
-    ? `<div style="display:flex;gap:4px;align-items:center;">
-        <input type="number" id="ai-amount" class="ai-input" step="0.01" value="${escHtml(String(aiData.amount))}">
-        <select id="ai-currency" class="ai-select">
-          <option value="SGD" ${aiData.currency==='SGD'?'selected':''}>SGD</option>
-          <option value="JPY" ${aiData.currency==='JPY'?'selected':''}>JPY</option>
-        </select>
+  // 金額フィールド：親 OR AIが不確かな場合 → 編集可 / それ以外の子供 → 表示のみ
+  const canEditAmount = isParentMode || !aiData.amountConfident;
+  const amountField = canEditAmount
+    ? `<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+        ${!isParentMode && !aiData.amountConfident
+          ? `<span style="font-size:11px;color:#E65100;background:#FFF3CD;padding:2px 8px;border-radius:10px;margin-bottom:2px;">⚠️ AIが不確か — 確認してください</span>`
+          : ''}
+        <div style="display:flex;gap:4px;align-items:center;">
+          <input type="number" id="ai-amount" class="ai-input" step="0.01" value="${escHtml(String(aiData.amount))}">
+          <select id="ai-currency" class="ai-select">
+            <option value="SGD" ${aiData.currency==='SGD'?'selected':''}>SGD</option>
+            <option value="JPY" ${aiData.currency==='JPY'?'selected':''}>JPY</option>
+          </select>
+        </div>
        </div>`
     : `<div style="display:flex;align-items:center;gap:8px;">
         <span style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--accent);">
@@ -666,7 +683,7 @@ async function addEntry(forceAdd = false) {
   const date=document.getElementById('f-date').value;
   const owner=isParentMode?document.getElementById('f-owner').value:currentOwner;
   const payee=document.getElementById('f-payee').value.trim(), amount=Number(document.getElementById('f-amount').value);
-  const cat=document.getElementById('f-cat').value, cur=document.getElementById('f-currency').value, memo=document.getElementById('f-memo').value;
+  const cat=document.getElementById('f-cat').value, cur=ownerToCurrency(owner), memo=document.getElementById('f-memo').value;
   if(!date||!payee||!amount){showMessage('入力が不足しています','#e74c3c');return;}
 
   // 重複チェック
