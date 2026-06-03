@@ -220,36 +220,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
         <button class="confirm-btn" id="confirm-btn" onclick="confirmAI()">✓ 確 認（この内容で追加）</button>
       </div>
 
-      <div class="form-card">
-        <div class="section-label">✏️ 手動入力</div>
-        <div class="field-row">
-          <div class="field"><label>日付</label><input type="date" id="f-date"></div>
-          <div class="field" id="f-owner-wrap"><label>担当者</label>
-            <select id="f-owner">
-              <option value="Kensei">Kensei</option>
-              <option value="Kazuki">Kazuki</option>
-              <option value="Hirotaka">Hirotaka</option>
-            </select>
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field"><label>カテゴリ</label>
-            <select id="f-cat">
-              <option value="食費">食費</option><option value="外食">外食</option>
-              <option value="交通費">交通費</option><option value="日用品">日用品</option>
-              <option value="その他">その他</option>
-            </select>
-          </div>
-          <div class="field"><label>通貨</label>
-            <select id="f-currency"><option value="SGD">SGD ($)</option><option value="JPY">JPY (¥)</option></select>
-          </div>
-        </div>
-        <div class="field"><label>支払先</label><input type="text" id="f-payee" placeholder="例：FairPrice"></div>
-        <div class="field"><label>金額</label><input type="number" id="f-amount" placeholder="0" step="0.01"></div>
-        <div class="field"><label>メモ（任意）</label><input type="text" id="f-memo"></div>
-        <button class="add-btn" onclick="addEntry()">追加する</button>
-        <div class="msg" id="form-msg"></div>
-      </div>
+      <div class="msg" id="form-msg" style="margin-top:8px;"></div>
     </div>
 
     <!-- 個人集計タブ -->
@@ -378,13 +349,9 @@ auth.onAuthStateChanged(user => {
     }
     document.getElementById('parent-badge').style.display = isParentMode ? 'inline' : 'none';
 
-    // 担当者フォームの制御
-    setupOwnerField();
-
     // 画面切替
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-app').style.display = 'block';
-    document.getElementById('f-date').valueAsDate = new Date();
 
     // Groq APIキー状態
     if (localStorage.getItem('groq_api_key')) setApiKeyStatus(true);
@@ -397,21 +364,6 @@ auth.onAuthStateChanged(user => {
     document.getElementById('login-screen').style.display = 'flex';
   }
 });
-
-function setupOwnerField() {
-  const wrap = document.getElementById('f-owner-wrap');
-  const sel  = document.getElementById('f-owner');
-  if (isParentMode) {
-    // 親は全員選べる
-    wrap.style.display = 'block';
-  } else {
-    // 子供は自分が固定
-    wrap.style.display = 'none';
-    sel.value = currentOwner;
-    // 通貨もデフォルト設定
-    document.getElementById('f-currency').value = currentOwner === 'Hirotaka' ? 'JPY' : 'SGD';
-  }
-}
 
 // ===== Firestore リアルタイム同期 =====
 function startFirestore() {
@@ -603,12 +555,31 @@ function renderAIResult(errorMsg) {
   const rows=document.getElementById('ai-rows');
   const cats=['食費','外食','交通費','日用品','その他'];
   const banner=errorMsg?`<div style="background:#FFF3CD;border:1px solid #FFEEBA;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#856404;">⚠️ ${escHtml(errorMsg)}</div>`:'';
+
+  // 金額フィールド：親は編集可、子供は表示のみ
+  const amountField = isParentMode
+    ? `<div style="display:flex;gap:4px;align-items:center;">
+        <input type="number" id="ai-amount" class="ai-input" step="0.01" value="${escHtml(String(aiData.amount))}">
+        <select id="ai-currency" class="ai-select">
+          <option value="SGD" ${aiData.currency==='SGD'?'selected':''}>SGD</option>
+          <option value="JPY" ${aiData.currency==='JPY'?'selected':''}>JPY</option>
+        </select>
+       </div>`
+    : `<div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--accent);">
+          ${aiData.currency==='SGD'?'$':'¥'}${escHtml(String(aiData.amount))}
+        </span>
+        <span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 8px;border-radius:10px;">🔒 親のみ変更可</span>
+        <input type="hidden" id="ai-amount" value="${escHtml(String(aiData.amount))}">
+        <input type="hidden" id="ai-currency" value="${escHtml(aiData.currency)}">
+       </div>`;
+
   rows.innerHTML=banner+`
     <div class="result-row"><span class="result-label">担当</span><span style="color:var(--accent);font-weight:bold;">${escHtml(aiData.owner)}</span></div>
     <div class="result-row"><span class="result-label">日付</span><input type="date" id="ai-date" class="ai-input" style="text-align:left;" value="${escHtml(aiData.date)}"></div>
     <div class="result-row"><span class="result-label">支払先</span><input type="text" id="ai-payee" class="ai-input" style="text-align:left;" value="${escHtml(aiData.payee)}"></div>
     <div class="result-row"><span class="result-label">カテゴリ</span><select id="ai-cat" class="ai-select">${cats.map(c=>`<option value="${escHtml(c)}" ${aiData.cat===c?'selected':''}>${escHtml(c)}</option>`).join('')}</select></div>
-    <div class="result-row"><span class="result-label">金額 / 通貨</span><div style="display:flex;gap:4px;align-items:center;"><input type="number" id="ai-amount" class="ai-input" step="0.01" value="${escHtml(String(aiData.amount))}"><select id="ai-currency" class="ai-select"><option value="SGD" ${aiData.currency==='SGD'?'selected':''}>SGD</option><option value="JPY" ${aiData.currency==='JPY'?'selected':''}>JPY</option></select></div></div>`;
+    <div class="result-row"><span class="result-label">金額 / 通貨</span>${amountField}</div>`;
 }
 
 async function confirmAI() {
