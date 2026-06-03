@@ -128,6 +128,20 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .dot-食費 { background: #5A8A2E; } .dot-外食 { background: #E07B3A; }
 .dot-交通費 { background: #3A7BE0; } .dot-日用品 { background: #9B59B6; } .dot-その他 { background: #95A5A6; }
 
+/* ===== 承認待ちセクション ===== */
+.pending-section { background: #FFF8F0; border: 1.5px solid #FBBF6A; border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+.pending-section-title { font-size: 13px; font-weight: 700; color: #E07B3A; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+.pending-item { background: white; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; border: 1px solid rgba(224,123,58,0.2); }
+.pending-item:last-child { margin-bottom: 0; }
+.pending-info { margin-bottom: 10px; }
+.pending-payee { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.pending-amounts { font-size: 12px; color: var(--text2); margin-bottom: 2px; }
+.pending-amounts .changed { color: #E07B3A; font-weight: 700; }
+.pending-meta { font-size: 11px; color: var(--text3); }
+.pending-btns { display: flex; gap: 8px; }
+.approve-btn { flex: 1; padding: 10px; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.reject-btn  { flex: 1; padding: 10px; background: none; border: 1.5px solid #C62828; color: #C62828; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+
 /* ===== API設定 ===== */
 .api-card { background: var(--surface); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
 .api-card-header { display: flex; align-items: center; justify-content: space-between; cursor: pointer; min-height: 36px; }
@@ -454,14 +468,16 @@ function isNewEntry(entry) {
 
 function updateListBadge() {
   if (!isParentMode) return;
-  const count = entries.filter(e => isNewEntry(e)).length;
+  const newCount     = entries.filter(e => isNewEntry(e)).length;
+  const pendingCount = entries.filter(e => e.status === 'pending').length;
   const listTab = document.querySelectorAll('.tab')[2];
   if (!listTab) return;
-  if (count > 0) {
-    listTab.innerHTML = `一覧<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle;">${count}</span>`;
-  } else {
-    listTab.textContent = '一覧';
-  }
+  let badges = '';
+  if (pendingCount > 0)
+    badges += `<span style="display:inline-block;background:#C62828;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;">承認 ${pendingCount}</span>`;
+  if (newCount > 0)
+    badges += `<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;">NEW ${newCount}</span>`;
+  listTab.innerHTML = badges ? `一覧${badges}` : '一覧';
 }
 
 // ===== 重複チェック =====
@@ -713,14 +729,29 @@ async function confirmAI(forceAdd = false) {
     return;
   }
 
+  // 子供が金額を変更したか判定
+  const originalAmount = aiData.amount;
+  const amountChanged = !isParentMode && Math.abs(amount - originalAmount) > 0.001;
+  const status = amountChanged ? 'pending' : 'approved';
+
   const btn=document.getElementById('confirm-btn');
   btn.disabled=true; btn.textContent='保存中...';
   try {
-    await db.collection('receipts').add({date,payee,amount,cat,owner:aiData.owner,currency:cur,memo:'AI解析',imageData:pendingImageData||null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    await db.collection('receipts').add({
+      date, payee, amount, cat, owner: aiData.owner, currency: cur,
+      memo: 'AI解析', imageData: pendingImageData || null,
+      status,
+      originalAmount: amountChanged ? originalAmount : null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
     document.getElementById('ai-result').style.display='none';
     document.getElementById('dup-warning-ai')?.remove();
     aiData=null; pendingImageData=null;
-    showMessage('追加しました！');
+    if (amountChanged) {
+      showMessage('金額を変更したため、親の承認待ちです', '#E07B3A');
+    } else {
+      showMessage('追加しました！');
+    }
   } catch(e) { showMessage('保存エラー: '+e.message,'#e74c3c'); }
   btn.disabled=false; btn.textContent='✓ 確 認（この内容で追加）';
 }
@@ -777,6 +808,17 @@ function showDuplicateWarning(target) {
   }
 }
 
+// ===== 承認・却下（親のみ） =====
+async function approvePending(id) {
+  if (!isParentMode) return;
+  await db.collection('receipts').doc(id).update({ status: 'approved', originalAmount: null });
+}
+async function rejectPending(id) {
+  if (!isParentMode) return;
+  if (!confirm('このレシートを却下しますか？')) return;
+  await db.collection('receipts').doc(id).update({ status: 'rejected' });
+}
+
 // ===== 削除（親のみ） =====
 async function deleteEntry(id) {
   if(!isParentMode){alert('削除は親のみ操作できます');return;}
@@ -787,21 +829,57 @@ async function deleteEntry(id) {
 // ===== 一覧表示 =====
 function renderList() {
   const list=document.getElementById('entry-list'), month=document.getElementById('filter-month').value;
-  let filtered=entries;
+  let filtered=entries.filter(e=>e.status!=='rejected'); // 却下済みは非表示
   if(month) filtered=filtered.filter(e=>e.date?.startsWith(month));
   if(currentPersonFilter) filtered=filtered.filter(e=>e.owner===currentPersonFilter);
-  if(!filtered.length){list.innerHTML='<div class="empty">データがありません</div>';return;}
-  list.innerHTML=filtered.map(e=>{
+
+  // 承認待ちセクション（親のみ）
+  let pendingHtml='';
+  if(isParentMode){
+    const pending=filtered.filter(e=>e.status==='pending');
+    if(pending.length){
+      const sym=e=>e.currency==='SGD'?'$':'¥';
+      const fmt=e=>e.currency==='SGD'?Number(e.amount).toFixed(2):Number(e.amount).toLocaleString('ja-JP');
+      const fmtOrig=e=>e.currency==='SGD'?Number(e.originalAmount).toFixed(2):Number(e.originalAmount).toLocaleString('ja-JP');
+      pendingHtml=`<div class="pending-section">
+        <div class="pending-section-title">🕐 承認待ち（${pending.length}件）</div>
+        ${pending.map(e=>`
+        <div class="pending-item">
+          <div class="pending-info">
+            <div class="pending-payee">${escHtml(e.payee)}</div>
+            <div class="pending-amounts">
+              AI読取：${sym(e)}${fmtOrig(e)} →
+              <span class="changed">変更後：${sym(e)}${fmt(e)}</span>
+            </div>
+            <div class="pending-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}</div>
+          </div>
+          ${e.imageData?`<div class="entry-photo" style="margin-bottom:10px;"><img src="${e.imageData}" alt="レシート" loading="lazy"></div>`:''}
+          <div class="pending-btns">
+            <button class="approve-btn" onclick="approvePending('${e.id}')">✓ 承認</button>
+            <button class="reject-btn"  onclick="rejectPending('${e.id}')">✗ 却下</button>
+          </div>
+        </div>`).join('')}
+      </div>`;
+    }
+  }
+
+  // 通常一覧（pending以外）
+  const normal=filtered.filter(e=>e.status!=='pending');
+  if(!normal.length&&!pendingHtml){list.innerHTML='<div class="empty">データがありません</div>';return;}
+  list.innerHTML=pendingHtml+normal.map(e=>{
     const sym=e.currency==='SGD'?'$':'¥';
     const amt=e.currency==='SGD'?Number(e.amount).toFixed(2):Number(e.amount).toLocaleString('ja-JP');
     const newBadge=isNewEntry(e)
       ?`<span style="display:inline-block;background:#5A8A2E;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;letter-spacing:0.04em;">NEW</span>`
       :'';
+    const pendingBadge=(!isParentMode&&e.status==='pending')
+      ?`<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
+      :'';
     const photoHtml=isParentMode&&e.imageData
       ?`<div class="entry-photo"><img src="${e.imageData}" alt="レシート" loading="lazy"></div>`
       :e.imageData?`<div class="photo-hint">📷 写真あり（親のみ表示）</div>`:'';
     const delBtn=isParentMode?`<button class="entry-del" onclick="deleteEntry('${e.id}')">×</button>`:'';
-    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}${newBadge}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${delBtn}</div>${photoHtml}</div>`;
+    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${delBtn}</div>${photoHtml}</div>`;
   }).join('');
 }
 
@@ -811,13 +889,16 @@ function getLastPaymentDate(owner) {
   if(!list.length) return null;
   return list.sort((a,b)=>b.date.localeCompare(a.date))[0].date;
 }
+function isApproved(e) {
+  return e.status === 'approved' || !e.status; // status未設定の古いデータも含める
+}
 function getUnpaidTotal(owner,cur) {
   const last=getLastPaymentDate(owner);
-  return entries.filter(e=>e.owner===owner&&e.currency===cur&&(!last||e.date>last)).reduce((s,e)=>s+Number(e.amount),0);
+  return entries.filter(e=>e.owner===owner&&e.currency===cur&&(!last||e.date>last)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
 }
 function getThisMonthTotal(owner,cur) {
   const ym=new Date().toISOString().substring(0,7);
-  return entries.filter(e=>e.owner===owner&&e.currency===cur&&e.date?.startsWith(ym)).reduce((s,e)=>s+Number(e.amount),0);
+  return entries.filter(e=>e.owner===owner&&e.currency===cur&&e.date?.startsWith(ym)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
 }
 
 async function markAsPaid(owner,cur) {
