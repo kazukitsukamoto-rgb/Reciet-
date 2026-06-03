@@ -220,7 +220,36 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
         <button class="confirm-btn" id="confirm-btn" onclick="confirmAI()">✓ 確 認（この内容で追加）</button>
       </div>
 
-      <div class="msg" id="form-msg" style="margin-top:8px;"></div>
+      <div class="form-card">
+        <div class="section-label">✏️ 手動入力</div>
+        <div class="field-row">
+          <div class="field"><label>日付</label><input type="date" id="f-date"></div>
+          <div class="field" id="f-owner-wrap"><label>担当者</label>
+            <select id="f-owner">
+              <option value="Kensei">Kensei</option>
+              <option value="Kazuki">Kazuki</option>
+              <option value="Hirotaka">Hirotaka</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>カテゴリ</label>
+            <select id="f-cat">
+              <option value="食費">食費</option><option value="外食">外食</option>
+              <option value="交通費">交通費</option><option value="日用品">日用品</option>
+              <option value="その他">その他</option>
+            </select>
+          </div>
+          <div class="field"><label>通貨</label>
+            <select id="f-currency"><option value="SGD">SGD ($)</option><option value="JPY">JPY (¥)</option></select>
+          </div>
+        </div>
+        <div class="field"><label>支払先</label><input type="text" id="f-payee" placeholder="例：FairPrice"></div>
+        <div class="field"><label>金額</label><input type="number" id="f-amount" placeholder="0" step="0.01"></div>
+        <div class="field"><label>メモ（任意）</label><input type="text" id="f-memo"></div>
+        <button class="add-btn" onclick="addEntry()">追加する</button>
+        <div class="msg" id="form-msg" style="margin-top:10px; height:auto; min-height:18px;"></div>
+      </div>
     </div>
 
     <!-- 個人集計タブ -->
@@ -352,6 +381,7 @@ auth.onAuthStateChanged(user => {
     // 画面切替
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-app').style.display = 'block';
+    setupForm();
 
     // Groq APIキー状態
     if (localStorage.getItem('groq_api_key')) setApiKeyStatus(true);
@@ -364,6 +394,31 @@ auth.onAuthStateChanged(user => {
     document.getElementById('login-screen').style.display = 'flex';
   }
 });
+
+// ===== フォーム初期化 =====
+function setupForm() {
+  document.getElementById('f-date').valueAsDate = new Date();
+  const ownerWrap = document.getElementById('f-owner-wrap');
+  const ownerSel  = document.getElementById('f-owner');
+  const curSel    = document.getElementById('f-currency');
+  if (isParentMode) {
+    ownerWrap.style.display = 'block';
+  } else {
+    ownerWrap.style.display = 'none';
+    ownerSel.value = currentOwner;
+    curSel.value = currentOwner === 'Hirotaka' ? 'JPY' : 'SGD';
+  }
+}
+
+// ===== 重複チェック =====
+function findDuplicate(date, payee, amount, currency) {
+  return entries.find(e =>
+    e.date === date &&
+    e.payee.trim().toLowerCase() === payee.trim().toLowerCase() &&
+    Math.abs(Number(e.amount) - Number(amount)) < 0.01 &&
+    e.currency === currency
+  );
+}
 
 // ===== Firestore リアルタイム同期 =====
 function startFirestore() {
@@ -582,16 +637,24 @@ function renderAIResult(errorMsg) {
     <div class="result-row"><span class="result-label">金額 / 通貨</span>${amountField}</div>`;
 }
 
-async function confirmAI() {
+async function confirmAI(forceAdd = false) {
   if(!aiData) return;
   const date=document.getElementById('ai-date').value, payee=document.getElementById('ai-payee').value.trim();
   const amount=Number(document.getElementById('ai-amount').value), cur=document.getElementById('ai-currency').value, cat=document.getElementById('ai-cat').value;
   if(!date||!payee||!amount){showMessage('入力が不足しています','#e74c3c');return;}
+
+  // 重複チェック
+  if (!forceAdd && findDuplicate(date, payee, amount, cur)) {
+    showDuplicateWarning('ai');
+    return;
+  }
+
   const btn=document.getElementById('confirm-btn');
   btn.disabled=true; btn.textContent='保存中...';
   try {
     await db.collection('receipts').add({date,payee,amount,cat,owner:aiData.owner,currency:cur,memo:'AI解析',imageData:pendingImageData||null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
     document.getElementById('ai-result').style.display='none';
+    document.getElementById('dup-warning-ai')?.remove();
     aiData=null; pendingImageData=null;
     showMessage('追加しました！');
   } catch(e) { showMessage('保存エラー: '+e.message,'#e74c3c'); }
@@ -599,17 +662,55 @@ async function confirmAI() {
 }
 
 // ===== 手動追加 =====
-async function addEntry() {
+async function addEntry(forceAdd = false) {
   const date=document.getElementById('f-date').value;
   const owner=isParentMode?document.getElementById('f-owner').value:currentOwner;
   const payee=document.getElementById('f-payee').value.trim(), amount=Number(document.getElementById('f-amount').value);
   const cat=document.getElementById('f-cat').value, cur=document.getElementById('f-currency').value, memo=document.getElementById('f-memo').value;
   if(!date||!payee||!amount){showMessage('入力が不足しています','#e74c3c');return;}
+
+  // 重複チェック
+  if (!forceAdd && findDuplicate(date, payee, amount, cur)) {
+    showDuplicateWarning('manual');
+    return;
+  }
+
   try {
     await db.collection('receipts').add({date,payee,amount,cat,owner,currency:cur,memo,imageData:null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
     document.getElementById('f-payee').value=''; document.getElementById('f-amount').value=''; document.getElementById('f-memo').value='';
+    document.getElementById('dup-warning-manual')?.remove();
     showMessage('追加しました！');
   } catch(e){showMessage('保存エラー','#e74c3c');}
+}
+
+// ===== 重複警告表示 =====
+function showDuplicateWarning(target) {
+  const id = 'dup-warning-' + target;
+  if (document.getElementById(id)) return; // すでに表示中
+
+  const forceFn = target === 'ai' ? 'confirmAI(true)' : 'addEntry(true)';
+  const parent  = target === 'ai'
+    ? document.getElementById('ai-rows')
+    : document.getElementById('form-msg').parentElement;
+
+  const div = document.createElement('div');
+  div.id = id;
+  div.innerHTML = `
+    <div style="background:#FFF3CD;border:1.5px solid #FFC107;border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+      <div style="font-size:14px;font-weight:700;color:#E65100;margin-bottom:6px;">⚠️ 同じレシートが存在します</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">同じ日付・店名・金額のレシートがすでに登録されています。</div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="${forceFn}" style="flex:1;padding:10px;background:#E65100;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">それでも追加</button>
+        <button onclick="document.getElementById('${id}').remove()" style="flex:1;padding:10px;background:none;border:1.5px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit;color:var(--text2);">キャンセル</button>
+      </div>
+    </div>`;
+
+  if (target === 'ai') {
+    parent.insertBefore(div, parent.firstChild);
+  } else {
+    const msg = document.getElementById('form-msg');
+    msg.parentElement.insertBefore(div, msg);
+  }
 }
 
 // ===== 削除（親のみ） =====
