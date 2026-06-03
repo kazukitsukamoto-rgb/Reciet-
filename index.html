@@ -11,7 +11,6 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232D5016'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white'>🧾</text></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%232D5016'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white'>🧾</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root {
   --bg: #F7F5F0; --surface: #FFFFFF; --surface2: #F0EDE6;
@@ -106,31 +105,6 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .owner-btn:active { background: var(--surface2); }
 .cancel-btn { width: 100%; padding: 12px; background: transparent; color: var(--text2); border: none; font-size: 13px; cursor: pointer; margin-top: 4px; }
 
-/* 為替ウィジェット */
-.rc-rate-row { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 4px; }
-.rc-rate-big { font-size: 32px; font-weight: 700; font-family: 'DM Mono', monospace; color: var(--text); line-height: 1; }
-.rc-change { font-size: 13px; font-weight: 600; padding-bottom: 2px; }
-.rc-change.up { color: #C62828; }
-.rc-change.dn { color: #2E7D32; }
-.rc-period-row { display: flex; gap: 4px; margin: 10px 0; }
-.rc-period-btn { padding: 5px 12px; border: 1.5px solid var(--border); border-radius: 20px; font-size: 12px; font-family: inherit; cursor: pointer; background: white; color: var(--text2); }
-.rc-period-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
-.rc-chart-wrap { height: 130px; margin-bottom: 12px; }
-.rc-badge { border-radius: 12px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.rc-badge.green  { background: #E8F5E0; }
-.rc-badge.yellow { background: #FFF8E1; }
-.rc-badge.red    { background: #FFEBEE; }
-.rc-badge-icon { font-size: 20px; }
-.rc-badge .rc-bm { font-size: 14px; font-weight: 700; }
-.rc-badge .rc-bs { font-size: 11px; margin-top: 2px; opacity: 0.75; }
-.rc-badge.green  .rc-bm { color: #2E7D32; }
-.rc-badge.yellow .rc-bm { color: #E65100; }
-.rc-badge.red    .rc-bm { color: #C62828; }
-.rc-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
-.rc-stat { background: var(--surface2); border-radius: 10px; padding: 9px 6px; text-align: center; }
-.rc-stat-lbl { font-size: 10px; color: var(--text3); font-weight: 700; margin-bottom: 3px; }
-.rc-stat-val { font-size: 13px; font-weight: 700; font-family: 'DM Mono', monospace; color: var(--text); }
-.rc-loading { text-align: center; padding: 24px; color: var(--text3); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -213,12 +187,6 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
       <div class="msg" id="form-msg"></div>
     </div>
 
-    <!-- 為替ウィジェット（追加タブ最下部） -->
-    <div class="form-card">
-      <div class="section-label" style="margin-bottom:10px;">💱 SGD / JPY 為替チェック</div>
-      <div id="rate-body"><div class="rc-loading"><div class="spinner" style="margin:0 auto 8px;"></div>レート取得中...</div></div>
-    </div>
-
   </div>
 
   <!-- ====== 個人集計タブ ====== -->
@@ -286,10 +254,6 @@ let payments = JSON.parse(localStorage.getItem('receipt_payments')    || '[]');
 let aiData = null;
 let imageFile = null;
 let currentPersonFilter = '';
-let rateChartInstance = null;
-let rateAllData = [];
-let currentRateDays = 90;
-
 document.getElementById('f-date').valueAsDate = new Date();
 
 (function() {
@@ -566,122 +530,6 @@ function renderMonthly() {
   document.getElementById('hirotaka-badge').textContent=`${new Date().getMonth()+1}月`;
 }
 
-/* ===== EXCHANGE RATE WIDGET ===== */
-async function initRateWidget() {
-  const body = document.getElementById('rate-body');
-  body.innerHTML = '<div class="rc-loading"><div class="spinner" style="margin:0 auto 8px;"></div>レート取得中...</div>';
-
-  // ① 現在レート：open.er-api.com（リアルタイム市場レート、Googleに近い）
-  let now = null, curDate = null;
-  try {
-    const r = await fetch('https://open.er-api.com/v6/latest/SGD');
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    if (d.result !== 'success') throw new Error();
-    now = d.rates.JPY;
-    curDate = d.time_last_update_utc
-      ? new Date(d.time_last_update_utc).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0];
-  } catch {
-    body.innerHTML = `<div class="rc-loading" style="line-height:2.2;">
-      レート取得に失敗しました<br>
-      <button onclick="initRateWidget()" style="margin-top:8px;padding:8px 18px;background:var(--accent);color:white;border:none;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer;">↺ 再取得</button>
-    </div>`;
-    return;
-  }
-
-  // ② 過去90日チャートデータ：Frankfurter（失敗してもOK）
-  try {
-    const d91 = new Date(); d91.setDate(d91.getDate() - 91);
-    const histRes = await fetch(`https://api.frankfurter.app/${d91.toISOString().split('T')[0]}..?from=SGD&to=JPY`);
-    if (!histRes.ok) throw new Error();
-    const histData = await histRes.json();
-    rateAllData = Object.entries(histData.rates)
-      .map(([d,r]) => ({ date:d, rate:r.JPY }))
-      .sort((a,b) => a.date.localeCompare(b.date));
-    // 末尾を現在の正確なレートで上書き or 追加
-    if (rateAllData.length && rateAllData[rateAllData.length-1].date === curDate) {
-      rateAllData[rateAllData.length-1].rate = now;
-    } else {
-      rateAllData.push({ date:curDate, rate:now });
-    }
-  } catch {
-    // 履歴取得失敗 → 現在レートのみ
-    rateAllData = [{ date:curDate, rate:now }];
-  }
-
-  renderRateWidget(Math.min(90, rateAllData.length - 1));
-}
-
-function renderRateWidget(days) {
-  currentRateDays = days;
-  const body = document.getElementById('rate-body');
-  const slice    = rateAllData.slice(-days-1);
-  const last91   = rateAllData.slice(-91).map(d=>d.rate);
-  const last31   = rateAllData.slice(-31).map(d=>d.rate);
-  const avg90    = last91.reduce((s,v)=>s+v,0)/last91.length;
-  const avg30    = last31.reduce((s,v)=>s+v,0)/last31.length;
-  const min90    = Math.min(...last91);
-  const now      = rateAllData[rateAllData.length-1].rate;
-  const prev     = rateAllData[rateAllData.length-2]?.rate || now;
-  const curDate  = rateAllData[rateAllData.length-1].date;
-  const chg = now-prev, pct=(chg/prev*100);
-  const diff=((now-avg90)/avg90)*100;
-  const lineColor  = diff<=-1.5?'#2E7D32':diff<=1.5?'#E65100':'#C62828';
-  const fillColor  = diff<=-1.5?'rgba(46,125,50,0.08)':diff<=1.5?'rgba(230,81,0,0.08)':'rgba(198,40,40,0.08)';
-  const badgeClass = diff<=-1.5?'green':diff<=1.5?'yellow':'red';
-  const icon       = diff<=-1.5?'🟢':diff<=1.5?'🟡':'🔴';
-  const mainTxt    = diff<=-1.5?'今は円高！入金のチャンスです':diff<=1.5?'普通のレートです':'今は円安 — もう少し待ちましょう';
-  const subTxt     = diff<=-1.5?`90日平均より ${Math.abs(diff).toFixed(1)}% 円高`:diff<=1.5?'90日平均とほぼ同じ水準':`90日平均より ${diff.toFixed(1)}% 円安`;
-
-  body.innerHTML = `
-    <div class="rc-rate-row">
-      <div class="rc-rate-big">¥${now.toFixed(2)}</div>
-      <div class="rc-change ${chg<0?'dn':'up'}">${chg<0?'▼':'▲'} ${Math.abs(chg).toFixed(2)} (${Math.abs(pct).toFixed(2)}%)</div>
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">1 SGD = 上記 JPY · ${curDate} 更新</div>
-    <div class="rc-period-row">
-      <button class="rc-period-btn ${days===30?'active':''}" onclick="switchRatePeriod(30,this)">1ヶ月</button>
-      <button class="rc-period-btn ${days===90?'active':''}" onclick="switchRatePeriod(90,this)">3ヶ月</button>
-      <button class="rc-period-btn ${days===180?'active':''}" onclick="switchRatePeriod(180,this)">6ヶ月</button>
-    </div>
-    <div class="rc-chart-wrap"><canvas id="rc-canvas" width="400" height="130"></canvas></div>
-    <div class="rc-badge ${badgeClass}">
-      <div class="rc-badge-icon">${icon}</div>
-      <div><div class="rc-bm">${mainTxt}</div><div class="rc-bs">${subTxt}</div></div>
-    </div>
-    <div class="rc-stats">
-      <div class="rc-stat"><div class="rc-stat-lbl">30日平均</div><div class="rc-stat-val">¥${avg30.toFixed(2)}</div></div>
-      <div class="rc-stat"><div class="rc-stat-lbl">90日平均</div><div class="rc-stat-val">¥${avg90.toFixed(2)}</div></div>
-      <div class="rc-stat"><div class="rc-stat-lbl">90日最安値</div><div class="rc-stat-val">¥${min90.toFixed(2)}</div></div>
-    </div>`;
-
-  // DOMが確実に更新されてからチャートを描画（タイミングバグ修正）
-  requestAnimationFrame(() => {
-    const canvas = document.getElementById('rc-canvas');
-    if (!canvas) return;
-    if (rateChartInstance) { rateChartInstance.destroy(); rateChartInstance = null; }
-    rateChartInstance = new Chart(canvas.getContext('2d'), {
-      type: 'line',
-      data: { labels: slice.map(d=>d.date), datasets: [{ data: slice.map(d=>d.rate), borderColor: lineColor, borderWidth: 2, backgroundColor: fillColor, fill: true, pointRadius: 0, tension: 0.3 }] },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: { duration: 400 },
-        plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label:c=>'¥'+c.parsed.y.toFixed(2) }, displayColors:false }},
-        scales: {
-          x: { grid:{ display:false }, ticks:{ maxTicksLimit:4, font:{ size:10 }, color:'#9C9A94' }},
-          y: { grid:{ color:'rgba(0,0,0,0.05)' }, ticks:{ font:{ size:10 }, color:'#9C9A94', callback:v=>'¥'+v.toFixed(0) }, position:'right' }
-        }
-      }
-    });
-  });
-}
-
-function switchRatePeriod(days, btn) {
-  document.querySelectorAll('.rc-period-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  renderRateWidget(days);
-}
-
 /* ===== UTILITIES ===== */
 function updateMonthFilter() {
   const sel=document.getElementById('filter-month'), cur=sel.value;
@@ -707,7 +555,6 @@ function exportCSV() {
 }
 
 updateMonthFilter();
-initRateWidget(); // ページ読み込み時に為替データ取得
 </script>
 </body>
 </html>
