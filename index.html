@@ -992,19 +992,32 @@ function renderList() {
       ?`<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
       :'';
     const photoHtml=e.imageData
-      ?`<div style="margin-top:10px;">
+      ?`<div style="margin:8px 0;">
           <img src="${e.imageData}" alt="レシート" loading="lazy"
             onclick="openPhoto('${e.id}')"
             style="height:80px;width:auto;max-width:100%;border-radius:8px;display:block;cursor:pointer;object-fit:contain;background:#F0EDE6;">
           <button onclick="openPhoto('${e.id}')"
-            style="margin-top:8px;width:100%;padding:10px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:0.02em;">
+            style="margin-top:6px;width:100%;padding:9px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
             🔍 写真を拡大して見る
           </button>
         </div>`
       :'';
     const editBtn=isParentMode?`<button class="entry-edit" onclick="openEditModal('${e.id}')">✏️</button>`:'';
     const delBtn =isParentMode?`<button class="entry-del"  onclick="deleteEntry('${e.id}')">×</button>`:'';
-    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${editBtn}${delBtn}</div>${photoHtml}</div>`;
+    return `<div class="entry-item">
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div class="entry-dot dot-${escHtml(e.cat)}" style="margin-top:5px;flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div>
+          <div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div>
+          ${photoHtml}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+            <div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>
+            <div style="display:flex;">${editBtn}${delBtn}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
   }).join('');
 }
 
