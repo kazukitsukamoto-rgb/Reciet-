@@ -213,7 +213,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 
     <!-- 追加タブ -->
     <div id="tab-add" class="section active">
-      <div class="api-card">
+      <div class="api-card" id="api-settings-card">
         <div class="api-card-header" onclick="toggleApiSettings()">
           <div class="section-label">🔑 AI設定（Groq・完全無料）</div>
           <span id="api-key-status" style="font-size:12px; color:var(--text3)">未設定</span>
@@ -402,8 +402,9 @@ let currentPersonFilter = '';
 let isParentMode  = false;
 let currentOwner  = null;
 let firestoreUnsubs = [];
-let parentLastRead = null; // 親が最後に一覧を見た時刻
-let currentEditId  = null; // 編集中のレシートID
+let parentLastRead = null;
+let currentEditId  = null;
+let groqApiKey     = null; // Firestoreから読み込むGroqキー
 
 // ===== Google ログイン =====
 function signInWithGoogle() {
@@ -449,13 +450,12 @@ auth.onAuthStateChanged(user => {
     document.getElementById('main-app').style.display = 'block';
     setupForm();
 
-    // Groq APIキー状態
-    if (localStorage.getItem('groq_api_key')) setApiKeyStatus(true);
-    else document.getElementById('api-settings-body').style.display = 'block';
-
     // Firestore 開始
     startFirestore();
     if (isParentMode) loadParentLastRead();
+
+    // GroqキーをFirestoreから自動読み込み
+    loadGroqKey();
   } else {
     document.getElementById('main-app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
@@ -486,6 +486,25 @@ function setupForm() {
     ownerSel.value = currentOwner;
   }
   updateCurrencyDisplay();
+}
+
+// ===== GroqキーをFirestoreから読み込む =====
+async function loadGroqKey() {
+  try {
+    const doc = await db.collection('config').doc('groqKey').get();
+    if (doc.exists && doc.data().value) {
+      groqApiKey = doc.data().value;
+      // API設定カードを非表示（不要になったため）
+      const card = document.getElementById('api-settings-card');
+      if (card) card.style.display = 'none';
+    } else {
+      // Firestoreにない場合はlocalStorageのキーを使用（フォールバック）
+      groqApiKey = localStorage.getItem('groq_api_key');
+    }
+  } catch(e) {
+    console.error('Groqキー読み込みエラー:', e);
+    groqApiKey = localStorage.getItem('groq_api_key');
+  }
 }
 
 // ===== 親の既読管理 =====
@@ -637,7 +656,7 @@ async function selectOwner(ownerName) {
   confirmBtn.disabled = true;
   rows.innerHTML = `<div style="text-align:center;padding:24px 0;"><div class="spinner" style="margin:0 auto 10px;"></div><div style="color:var(--text2);font-size:13px;">Groq AI が解析中...</div></div>`;
 
-  const apiKey = localStorage.getItem('groq_api_key');
+  const apiKey = groqApiKey || localStorage.getItem('groq_api_key');
   let errorMsg = null;
   pendingImageData = null;
 
