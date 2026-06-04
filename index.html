@@ -991,30 +991,26 @@ function renderList() {
     const pendingBadge=(!isParentMode&&e.status==='pending')
       ?`<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
       :'';
-    const photoHtml=e.imageData
-      ?`<div style="margin:8px 0;">
-          <img src="${e.imageData}" alt="レシート" loading="lazy"
-            onclick="openPhoto('${e.id}')"
-            style="height:80px;width:auto;max-width:100%;border-radius:8px;display:block;cursor:pointer;object-fit:contain;background:#F0EDE6;">
-          <button onclick="openPhoto('${e.id}')"
-            style="margin-top:6px;width:100%;padding:9px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
-            🔍 写真を拡大して見る
-          </button>
-        </div>`
-      :'';
+    // 右カラム：写真サムネイル（タップで拡大）＋ 金額
+    const photoThumb = e.imageData
+      ? `<div onclick="openPhoto('${e.id}')" style="cursor:pointer;position:relative;width:68px;height:68px;border-radius:10px;overflow:hidden;flex-shrink:0;">
+           <img src="${e.imageData}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;">
+           <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.42);text-align:center;font-size:11px;color:white;padding:2px 0;">🔍</div>
+         </div>`
+      : '';
     const editBtn=isParentMode?`<button class="entry-edit" onclick="openEditModal('${e.id}')">✏️</button>`:'';
     const delBtn =isParentMode?`<button class="entry-del"  onclick="deleteEntry('${e.id}')">×</button>`:'';
     return `<div class="entry-item">
-      <div style="display:flex;align-items:flex-start;gap:12px;">
+      <div style="display:flex;align-items:flex-start;gap:10px;">
         <div class="entry-dot dot-${escHtml(e.cat)}" style="margin-top:5px;flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
           <div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div>
           <div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div>
-          ${photoHtml}
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-            <div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>
-            <div style="display:flex;">${editBtn}${delBtn}</div>
-          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
+          ${photoThumb}
+          <div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>
+          ${(editBtn||delBtn)?`<div style="display:flex;">${editBtn}${delBtn}</div>`:''}
         </div>
       </div>
     </div>`;
