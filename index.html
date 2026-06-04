@@ -128,6 +128,15 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .dot-食費 { background: #5A8A2E; } .dot-外食 { background: #E07B3A; }
 .dot-交通費 { background: #3A7BE0; } .dot-日用品 { background: #9B59B6; } .dot-その他 { background: #95A5A6; }
 
+/* ===== 編集ボタン ===== */
+.entry-edit { background: none; border: none; cursor: pointer; color: var(--text2); font-size: 16px; padding: 6px; flex-shrink: 0; min-width: 32px; text-align: center; opacity: 0.7; }
+.entry-edit:active { opacity: 1; }
+
+/* ===== 写真フルスクリーン ===== */
+#photo-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.94); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 16px; }
+#photo-overlay img { max-width: 100%; max-height: 88vh; border-radius: 12px; object-fit: contain; display: block; }
+#photo-overlay-close { position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.18); border: none; color: white; font-size: 22px; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
 /* ===== 承認待ちセクション ===== */
 .pending-section { background: #FFF8F0; border: 1.5px solid #FBBF6A; border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
 .pending-section-title { font-size: 13px; font-weight: 700; color: #E07B3A; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
@@ -309,6 +318,47 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
   </div>
 </div>
 
+<!-- 写真フルスクリーン -->
+<div id="photo-overlay">
+  <button id="photo-overlay-close" onclick="closePhoto()">✕</button>
+  <img id="photo-overlay-img" src="" alt="レシート写真" onclick="event.stopPropagation()">
+</div>
+
+<!-- 編集モーダル（親のみ） -->
+<div id="edit-modal" class="modal-overlay">
+  <div class="modal-box" style="max-height:88vh; overflow-y:auto; width:92%; max-width:400px;">
+    <div style="font-size:16px; font-weight:700; color:var(--accent); margin-bottom:20px;">✏️ レシートを編集</div>
+    <div class="field"><label>日付</label><input type="date" id="edit-date"></div>
+    <div class="field"><label>担当者</label>
+      <select id="edit-owner">
+        <option value="Kensei">Kensei</option>
+        <option value="Kazuki">Kazuki</option>
+        <option value="Hirotaka">Hirotaka</option>
+      </select>
+    </div>
+    <div class="field"><label>支払先</label><input type="text" id="edit-payee"></div>
+    <div class="field-row">
+      <div class="field"><label>カテゴリ</label>
+        <select id="edit-cat">
+          <option value="食費">食費</option><option value="外食">外食</option>
+          <option value="交通費">交通費</option><option value="日用品">日用品</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+      <div class="field"><label>通貨</label>
+        <select id="edit-currency">
+          <option value="SGD">SGD ($)</option>
+          <option value="JPY">JPY (¥)</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>金額</label><input type="number" id="edit-amount" step="0.01" placeholder="0"></div>
+    <div class="field" style="margin-bottom:20px;"><label>メモ</label><input type="text" id="edit-memo"></div>
+    <button id="edit-save-btn" class="add-btn" onclick="saveEdit()" style="margin-bottom:10px;">保存する</button>
+    <button class="cancel-btn" onclick="closeEditModal()">キャンセル</button>
+  </div>
+</div>
+
 <!-- 親が担当者を選ぶモーダル -->
 <div id="owner-modal" class="modal-overlay">
   <div class="modal-box">
@@ -353,6 +403,7 @@ let isParentMode  = false;
 let currentOwner  = null;
 let firestoreUnsubs = [];
 let parentLastRead = null; // 親が最後に一覧を見た時刻
+let currentEditId  = null; // 編集中のレシートID
 
 // ===== Google ログイン =====
 function signInWithGoogle() {
@@ -798,6 +849,62 @@ function showDuplicateWarning(target) {
   }
 }
 
+// ===== 編集（親のみ） =====
+function openEditModal(id) {
+  if (!isParentMode) return;
+  const e = entries.find(en => en.id === id);
+  if (!e) return;
+  currentEditId = id;
+  document.getElementById('edit-date').value     = e.date     || '';
+  document.getElementById('edit-owner').value    = e.owner    || 'Kazuki';
+  document.getElementById('edit-payee').value    = e.payee    || '';
+  document.getElementById('edit-cat').value      = e.cat      || '食費';
+  document.getElementById('edit-currency').value = e.currency || 'SGD';
+  document.getElementById('edit-amount').value   = e.amount   || '';
+  document.getElementById('edit-memo').value     = e.memo     || '';
+  document.getElementById('edit-modal').style.display = 'flex';
+}
+function closeEditModal() {
+  document.getElementById('edit-modal').style.display = 'none';
+  currentEditId = null;
+}
+async function saveEdit() {
+  if (!currentEditId || !isParentMode) return;
+  const date   = document.getElementById('edit-date').value;
+  const owner  = document.getElementById('edit-owner').value;
+  const payee  = document.getElementById('edit-payee').value.trim();
+  const cat    = document.getElementById('edit-cat').value;
+  const cur    = document.getElementById('edit-currency').value;
+  const amount = Number(document.getElementById('edit-amount').value);
+  const memo   = document.getElementById('edit-memo').value;
+  if (!date || !payee || !amount) { alert('入力が不足しています'); return; }
+  const btn = document.getElementById('edit-save-btn');
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    await db.collection('receipts').doc(currentEditId).update({
+      date, owner, payee, cat, currency: cur, amount, memo,
+      status: 'approved', // 親が編集したら承認済みに
+      originalAmount: null
+    });
+    closeEditModal();
+  } catch(err) { alert('保存エラー: ' + err.message); }
+  btn.disabled = false; btn.textContent = '保存する';
+}
+
+// ===== 写真フルスクリーン =====
+function openPhoto(entryId) {
+  const entry = entries.find(e => e.id === entryId);
+  if (!entry?.imageData) return;
+  document.getElementById('photo-overlay-img').src = entry.imageData;
+  document.getElementById('photo-overlay').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closePhoto() {
+  document.getElementById('photo-overlay').style.display = 'none';
+  document.getElementById('photo-overlay-img').src = '';
+  document.body.style.overflow = '';
+}
+
 // ===== 承認・却下（親のみ） =====
 async function approvePending(id) {
   if (!isParentMode) return;
@@ -866,10 +973,14 @@ function renderList() {
       ?`<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
       :'';
     const photoHtml=isParentMode&&e.imageData
-      ?`<div class="entry-photo"><img src="${e.imageData}" alt="レシート" loading="lazy"></div>`
+      ?`<div class="entry-photo" onclick="openPhoto('${e.id}')" style="cursor:pointer;position:relative;">
+          <img src="${e.imageData}" alt="レシート" loading="lazy">
+          <div style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.45);color:white;font-size:11px;padding:3px 8px;border-radius:10px;">🔍 拡大</div>
+        </div>`
       :e.imageData?`<div class="photo-hint">📷 写真あり（親のみ表示）</div>`:'';
-    const delBtn=isParentMode?`<button class="entry-del" onclick="deleteEntry('${e.id}')">×</button>`:'';
-    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${delBtn}</div>${photoHtml}</div>`;
+    const editBtn=isParentMode?`<button class="entry-edit" onclick="openEditModal('${e.id}')">✏️</button>`:'';
+    const delBtn =isParentMode?`<button class="entry-del"  onclick="deleteEntry('${e.id}')">×</button>`:'';
+    return `<div class="entry-item"><div class="entry-main"><div class="entry-dot dot-${escHtml(e.cat)}"></div><div class="entry-info"><div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div><div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}</div></div><div class="entry-amount" style="color:${e.currency==='SGD'?'#5A8A2E':'inherit'}">${escHtml(sym+amt)}</div>${editBtn}${delBtn}</div>${photoHtml}</div>`;
   }).join('');
 }
 
