@@ -456,13 +456,13 @@ db.enablePersistence({ synchronizeTabs: true }).catch(err => {
     console.warn('Persistence error:', err);
 });
 
-// ===== ユーザー設定 =====
-const USER_MAP = {
-  'sunnytsukamoto@gmail.com':      { role: 'parent', name: '親' },
-  'ken24tsukamoto@gmail.com':      { role: 'kid',    name: 'Kensei' },
-  'kazu22tsukamoto@gmail.com':     { role: 'kid',    name: 'Kazuki' },
-  'hirotakatsukamoto35@gmail.com': { role: 'kid',    name: 'Hirotaka' }
-};
+// ===== ユーザー設定（Firestoreから読み込む） =====
+let USER_MAP = {};
+const userMapPromise = db.collection('config').doc('allowedUsers').get()
+  .then(doc => {
+    if (doc.exists) USER_MAP = doc.data();
+  })
+  .catch(err => console.warn('allowedUsers load error:', err));
 
 // ===== 状態 =====
 let entries  = [];
@@ -520,7 +520,9 @@ function hideSplash() {
 setTimeout(hideSplash, 1000);
 
 // ===== 認証状態の監視 =====
-auth.onAuthStateChanged(user => {
+auth.onAuthStateChanged(async user => {
+  // メールアドレスリストの読み込みを待つ
+  await userMapPromise;
   hideSplash();
   if (user) {
     const info = USER_MAP[user.email];
