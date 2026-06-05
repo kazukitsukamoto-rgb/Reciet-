@@ -269,7 +269,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 
       <div class="upload-card" onclick="document.getElementById('img-input').click()">
         <div class="upload-icon">📷</div>
-        <p><strong>レシートの写真をアップロード</strong><br>タップして画像を選択<br><small style="color:var(--text3)">Groq AI で自動読み取り・写真も保存</small></p>
+        <p><strong>レシートの写真をアップロード</strong><br>タップして画像を選択</p>
         <input type="file" id="img-input" accept="image/*" onchange="handleImage(event)">
       </div>
 
@@ -346,7 +346,6 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
       </div>
       <div class="filter-row">
         <select id="filter-month" onchange="renderList()"><option value="">すべての月</option></select>
-        <button class="export-btn" onclick="exportCSV()">CSV出力</button>
       </div>
       <div id="entry-list"><div class="empty">読み込み中...</div></div>
     </div>
