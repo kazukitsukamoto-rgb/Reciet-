@@ -456,13 +456,8 @@ db.enablePersistence({ synchronizeTabs: true }).catch(err => {
     console.warn('Persistence error:', err);
 });
 
-// ===== ユーザー設定（Firestoreから読み込む） =====
+// ===== ユーザー設定（認証後にFirestoreから読み込む） =====
 let USER_MAP = {};
-const userMapPromise = db.collection('config').doc('allowedUsers').get()
-  .then(doc => {
-    if (doc.exists) USER_MAP = doc.data();
-  })
-  .catch(err => console.warn('allowedUsers load error:', err));
 
 // ===== 状態 =====
 let entries  = [];
@@ -521,10 +516,14 @@ setTimeout(hideSplash, 1000);
 
 // ===== 認証状態の監視 =====
 auth.onAuthStateChanged(async user => {
-  // メールアドレスリストの読み込みを待つ
-  await userMapPromise;
   hideSplash();
   if (user) {
+    // 認証後にユーザーマップを読み込む（セキュリティルール対応）
+    try {
+      const doc = await db.collection('config').doc('allowedUsers').get();
+      if (doc.exists) USER_MAP = doc.data();
+    } catch(e) { console.warn('allowedUsers load error:', e); }
+
     const info = USER_MAP[user.email];
     if (!info) {
       document.getElementById('login-error').textContent = `このアカウント（${user.email}）は登録されていません`;
