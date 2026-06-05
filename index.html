@@ -159,25 +159,6 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
   animation: slideUp 0.3s ease;
 }
 
-/* ===== ダークモード ===== */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1C1E1B; --surface: #272A26; --surface2: #323530;
-    --text: #E4E8E0; --text2: #A0A49C; --text3: #64685F;
-    --border: rgba(255,255,255,0.1);
-  }
-  .ai-result-card { background: #1E2E14; }
-  .ai-input { background: var(--surface); color: var(--text); border-color: var(--border); }
-  .ai-select { background: var(--surface); color: var(--text); border-color: var(--border); }
-  .modal-box { background: var(--bg); }
-  .google-btn { background: var(--surface); color: var(--text); border-color: var(--border); }
-  .login-title { color: #7EC84A; }
-  .pending-section { background: #2A2010; border-color: #6A4A10; }
-  .pending-item { background: var(--surface); }
-  #photo-overlay { background: rgba(0,0,0,0.97); }
-  .memo-chip { background: var(--surface); color: var(--text2); }
-  .rate-stat { background: var(--surface); }
-}
 
 /* ===== メモチップ ===== */
 .memo-chip { padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 20px; font-size: 13px; font-family: inherit; cursor: pointer; background: var(--surface); color: var(--text2); transition: 0.15s; }
