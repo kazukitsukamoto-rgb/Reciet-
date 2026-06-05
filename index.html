@@ -450,9 +450,10 @@ let currentPersonFilter = '';
 let isParentMode  = false;
 let currentOwner  = null;
 let firestoreUnsubs = [];
-let parentLastRead = null;
-let currentEditId  = null;
-let groqApiKey     = null; // Firestoreから読み込むGroqキー
+let parentLastRead   = null;
+let currentEditId    = null;
+let groqApiKey       = null;
+let firestoreReady   = false; // Firestoreデータ読み込み完了フラグ
 
 // ===== Google ログイン =====
 function signInWithGoogle() {
@@ -580,7 +581,8 @@ function showApiCard() {
 // ===== ヘッダーに今月合計 =====
 function updateHeaderTotal() {
   const el = document.getElementById('header-total');
-  if (!el || !currentOwner) { if(el) el.style.display='none'; return; }
+  // データ読み込み前は表示しない（0が一瞬見えるバグを防ぐ）
+  if (!el || !currentOwner || !firestoreReady) { if(el) el.style.display='none'; return; }
   if (currentOwner === 'Hirotaka') {
     const total = getThisMonthTotal('Hirotaka', 'JPY');
     const month = new Date().getMonth() + 1;
@@ -594,10 +596,17 @@ function updateHeaderTotal() {
 
 // ===== レシートが入金済みかチェック =====
 function getPaymentForEntry(entry) {
-  const currency = entry.owner === 'Hirotaka' ? 'JPY' : 'SGD';
+  // Hirotakaは月単位で判定（monthフィールドを使用）
+  if (entry.owner === 'Hirotaka') {
+    const entryMonth = entry.date?.substring(0, 7);
+    return payments.find(p =>
+      p.owner === 'Hirotaka' && p.currency === 'JPY' && p.month === entryMonth
+    ) || null;
+  }
+  // Kazuki/Kenseiは日付ベースで判定
   const ownerPayments = payments
-    .filter(p => p.owner === entry.owner && p.currency === currency)
-    .sort((a,b) => a.date.localeCompare(b.date)); // 昇順
+    .filter(p => p.owner === entry.owner && p.currency === 'SGD')
+    .sort((a,b) => a.date.localeCompare(b.date));
   for (let i = 0; i < ownerPayments.length; i++) {
     const p = ownerPayments[i];
     const prevDate = i > 0 ? ownerPayments[i-1].date : '0000-00-00';
@@ -650,13 +659,17 @@ function updateListBadge() {
 }
 
 // ===== 重複チェック =====
-function findDuplicate(date, payee, amount, currency) {
-  return entries.find(e =>
-    e.date === date &&
-    e.payee.trim().toLowerCase() === payee.trim().toLowerCase() &&
-    Math.abs(Number(e.amount) - Number(amount)) < 0.01 &&
-    e.currency === currency
-  );
+// isManual=true の場合は支払先なしで日付・金額・通貨のみ比較
+function findDuplicate(date, payee, amount, currency, isManual = false) {
+  return entries.find(e => {
+    if (e.status === 'rejected') return false;
+    const sameDate   = e.date === date;
+    const sameAmount = Math.abs(Number(e.amount) - Number(amount)) < 0.01;
+    const sameCur    = e.currency === currency;
+    if (isManual) return sameDate && sameAmount && sameCur;
+    const samePayee  = e.payee?.trim().toLowerCase() === payee.trim().toLowerCase();
+    return sameDate && samePayee && sameAmount && sameCur;
+  });
 }
 
 // ===== Firestore リアルタイム同期 =====
@@ -666,6 +679,7 @@ function startFirestore() {
 
   const u1 = db.collection('receipts').orderBy('createdAt','desc').onSnapshot(snap => {
     entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    firestoreReady = true;
     updateMonthFilter();
     updateListBadge();
     updateHeaderTotal();
@@ -943,8 +957,8 @@ async function addEntry(forceAdd = false) {
   const payee = memo || cat || '手動入力';
   if(!date||!amount){showMessage('日付と金額を入力してください','#e74c3c');return;}
 
-  // 重複チェック
-  if (!forceAdd && findDuplicate(date, payee, amount, cur)) {
+  // 重複チェック（手動入力は日付・金額・通貨のみで判定）
+  if (!forceAdd && findDuplicate(date, payee, amount, cur, true)) {
     showDuplicateWarning('manual');
     return;
   }
