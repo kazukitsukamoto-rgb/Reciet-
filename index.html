@@ -142,6 +142,10 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .dot-食費 { background: #5A8A2E; } .dot-外食 { background: #E07B3A; }
 .dot-交通費 { background: #3A7BE0; } .dot-日用品 { background: #9B59B6; } .dot-その他 { background: #95A5A6; }
 
+/* ===== メモチップ ===== */
+.memo-chip { padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 20px; font-size: 13px; font-family: inherit; cursor: pointer; background: var(--surface); color: var(--text2); transition: 0.15s; }
+.memo-chip.selected { background: var(--accent); color: white; border-color: var(--accent); }
+
 /* ===== 編集ボタン ===== */
 .entry-edit { background: none; border: none; cursor: pointer; color: var(--text2); font-size: 16px; padding: 6px; flex-shrink: 0; min-width: 32px; text-align: center; opacity: 0.7; }
 .entry-edit:active { opacity: 1; }
@@ -292,8 +296,9 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
           </div>
         </div>
         <div class="field-row">
-          <div class="field"><label>カテゴリ</label>
+          <div class="field"><label>カテゴリ（任意）</label>
             <select id="f-cat">
+              <option value="">-- なし --</option>
               <option value="食費">食費</option><option value="外食">外食</option>
               <option value="交通費">交通費</option><option value="日用品">日用品</option>
               <option value="その他">その他</option>
@@ -303,9 +308,16 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
             <div id="f-currency-display" style="padding:12px 14px; background:var(--surface2); border-radius:var(--radius-sm); font-size:15px; color:var(--text2); min-height:48px; display:flex; align-items:center;">SGD ($)</div>
           </div>
         </div>
-        <div class="field"><label>支払先</label><input type="text" id="f-payee" placeholder="例：FairPrice"></div>
         <div class="field"><label>金額</label><input type="number" id="f-amount" placeholder="0" step="0.01"></div>
-        <div class="field"><label>メモ（任意）</label><input type="text" id="f-memo"></div>
+        <div class="field">
+          <label>メモ（任意）</label>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+            <button type="button" class="memo-chip" onclick="toggleMemoChip('自販機')">🥤 自販機</button>
+            <button type="button" class="memo-chip" onclick="toggleMemoChip('コンビニ')">🏪 コンビニ</button>
+            <button type="button" class="memo-chip" onclick="toggleMemoChip('交通')">🚃 交通</button>
+          </div>
+          <input type="text" id="f-memo" placeholder="その他のメモ" oninput="clearMemoChips()">
+        </div>
         <button class="add-btn" onclick="addEntry()">追加する</button>
         <div class="msg" id="form-msg" style="margin-top:10px; height:auto; min-height:18px;"></div>
       </div>
@@ -873,13 +885,30 @@ async function confirmAI(forceAdd = false) {
   btn.disabled=false; btn.textContent='✓ 確 認（この内容で追加）';
 }
 
+// ===== メモチップ =====
+function toggleMemoChip(value) {
+  const input = document.getElementById('f-memo');
+  const isSelected = input.value === value;
+  document.querySelectorAll('.memo-chip').forEach(b => b.classList.remove('selected'));
+  if (isSelected) {
+    input.value = '';
+  } else {
+    input.value = value;
+    [...document.querySelectorAll('.memo-chip')].find(b => b.textContent.includes(value))?.classList.add('selected');
+  }
+}
+function clearMemoChips() {
+  document.querySelectorAll('.memo-chip').forEach(b => b.classList.remove('selected'));
+}
+
 // ===== 手動追加 =====
 async function addEntry(forceAdd = false) {
   const date=document.getElementById('f-date').value;
   const owner=isParentMode?document.getElementById('f-owner').value:currentOwner;
-  const payee=document.getElementById('f-payee').value.trim(), amount=Number(document.getElementById('f-amount').value);
+  const amount=Number(document.getElementById('f-amount').value);
   const cat=document.getElementById('f-cat').value, cur=ownerToCurrency(owner), memo=document.getElementById('f-memo').value;
-  if(!date||!payee||!amount){showMessage('入力が不足しています','#e74c3c');return;}
+  const payee = memo || cat || '手動入力';
+  if(!date||!amount){showMessage('日付と金額を入力してください','#e74c3c');return;}
 
   // 重複チェック
   if (!forceAdd && findDuplicate(date, payee, amount, cur)) {
@@ -889,7 +918,9 @@ async function addEntry(forceAdd = false) {
 
   try {
     await db.collection('receipts').add({date,payee,amount,cat,owner,currency:cur,memo,imageData:null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
-    document.getElementById('f-payee').value=''; document.getElementById('f-amount').value=''; document.getElementById('f-memo').value='';
+    document.getElementById('f-amount').value='';
+    document.getElementById('f-memo').value='';
+    document.querySelectorAll('.memo-chip').forEach(b => b.classList.remove('selected'));
     document.getElementById('dup-warning-manual')?.remove();
     showMessage('追加しました！');
   } catch(e){showMessage('保存エラー','#e74c3c');}
