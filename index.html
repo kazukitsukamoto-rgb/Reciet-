@@ -249,7 +249,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 
     <!-- 追加タブ -->
     <div id="tab-add" class="section active">
-      <div class="api-card" id="api-settings-card">
+      <div class="api-card" id="api-settings-card" style="display:none;">
         <div class="api-card-header" onclick="toggleApiSettings()">
           <div class="section-label">🔑 AI設定（Groq・完全無料）</div>
           <span id="api-key-status" style="font-size:12px; color:var(--text3)">未設定</span>
@@ -459,12 +459,18 @@ function signOutUser() {
 }
 
 // ===== スプラッシュを消す =====
+let splashHidden = false;
 function hideSplash() {
+  if (splashHidden) return;
+  splashHidden = true;
   const splash = document.getElementById('splash-screen');
   if (!splash) return;
+  splash.style.transition = 'opacity 0.2s ease';
   splash.style.opacity = '0';
-  setTimeout(() => splash.remove(), 350);
+  setTimeout(() => splash.remove(), 200);
 }
+// 最大1秒で強制終了（Firebase読み込みが遅い場合の保険）
+setTimeout(hideSplash, 1000);
 
 // ===== 認証状態の監視 =====
 auth.onAuthStateChanged(user => {
@@ -539,16 +545,22 @@ async function loadGroqKey() {
     const doc = await db.collection('config').doc('groqKey').get();
     if (doc.exists && doc.data().value) {
       groqApiKey = doc.data().value;
-      // API設定カードを非表示（不要になったため）
-      const card = document.getElementById('api-settings-card');
-      if (card) card.style.display = 'none';
+      // キーあり → カードは非表示のまま
     } else {
-      // Firestoreにない場合はlocalStorageのキーを使用（フォールバック）
       groqApiKey = localStorage.getItem('groq_api_key');
+      if (!groqApiKey) showApiCard(); // キーなし → 入力欄を表示
     }
   } catch(e) {
     console.error('Groqキー読み込みエラー:', e);
     groqApiKey = localStorage.getItem('groq_api_key');
+    if (!groqApiKey) showApiCard();
+  }
+}
+function showApiCard() {
+  const card = document.getElementById('api-settings-card');
+  if (card) {
+    card.style.display = 'block';
+    document.getElementById('api-settings-body').style.display = 'block';
   }
 }
 
