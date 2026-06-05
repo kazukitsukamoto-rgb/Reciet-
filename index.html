@@ -141,6 +141,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 /* ===== カテゴリ ===== */
 .dot-食費 { background: #5A8A2E; } .dot-外食 { background: #E07B3A; }
 .dot-交通費 { background: #3A7BE0; } .dot-日用品 { background: #9B59B6; } .dot-その他 { background: #95A5A6; }
+.dot- { background: var(--border); } /* カテゴリなしのデフォルト色 */
 
 /* ===== メモチップ ===== */
 .memo-chip { padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 20px; font-size: 13px; font-family: inherit; cursor: pointer; background: var(--surface); color: var(--text2); transition: 0.15s; }
@@ -367,7 +368,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 </div>
 
 <!-- 写真フルスクリーン -->
-<div id="photo-overlay">
+<div id="photo-overlay" onclick="closePhoto()">
   <button id="photo-overlay-close" onclick="closePhoto()">✕</button>
   <img id="photo-overlay-img" src="" alt="レシート写真" onclick="event.stopPropagation()">
 </div>
@@ -466,8 +467,17 @@ function signInWithGoogle() {
 
 function signOutUser() {
   if (confirm('ログアウトしますか？')) {
+    // Bug fix: サインアウト時に全状態をリセット
     firestoreUnsubs.forEach(u => u());
     firestoreUnsubs = [];
+    entries = []; payments = [];
+    aiData = null; imageFile = null; pendingImageData = null;
+    groqApiKey = null; parentLastRead = null;
+    currentEditId = null; currentPersonFilter = '';
+    firestoreReady = false; splashHidden = false;
+    isParentMode = false; currentOwner = null;
+    const ht = document.getElementById('header-total');
+    if (ht) ht.style.display = 'none';
     auth.signOut();
   }
 }
@@ -964,7 +974,7 @@ async function addEntry(forceAdd = false) {
   }
 
   try {
-    await db.collection('receipts').add({date,payee,amount,cat,owner,currency:cur,memo,imageData:null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    await db.collection('receipts').add({date,payee,amount,cat,owner,currency:cur,memo,imageData:null,status:'approved',createdAt:firebase.firestore.FieldValue.serverTimestamp()});
     document.getElementById('f-amount').value='';
     document.getElementById('f-memo').value='';
     document.querySelectorAll('.memo-chip').forEach(b => b.classList.remove('selected'));
@@ -1123,9 +1133,7 @@ function renderList() {
     const newBadge=isNewEntry(e)
       ?`<span style="display:inline-block;background:#5A8A2E;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;letter-spacing:0.04em;">NEW</span>`
       :'';
-    const pendingBadge=(!isParentMode&&e.status==='pending')
-      ?`<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
-      :'';
+    // ※ pending項目は通常一覧から除外済みのため pendingBadge は不要
     // 写真なしバッジ
     const noPhotoBadge=!e.imageData
       ?`<span style="display:inline-block;font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">📎 写真なし</span>`
@@ -1148,7 +1156,7 @@ function renderList() {
       <div style="display:flex;align-items:flex-start;gap:10px;">
         <div class="entry-dot dot-${escHtml(e.cat)}" style="margin-top:5px;flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
-          <div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div>
+          <div class="entry-payee">${escHtml(e.payee)}${newBadge}</div>
           <div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}${noPhotoBadge}${paidBadge}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
@@ -1162,8 +1170,8 @@ function renderList() {
 }
 
 // ===== 個人集計 =====
-function getLastPaymentDate(owner) {
-  const list=payments.filter(p=>p.owner===owner);
+function getLastPaymentDate(owner, currency='SGD') {
+  const list=payments.filter(p=>p.owner===owner&&p.currency===currency);
   if(!list.length) return null;
   return list.sort((a,b)=>b.date.localeCompare(a.date))[0].date;
 }
@@ -1171,7 +1179,7 @@ function isApproved(e) {
   return e.status === 'approved' || !e.status; // status未設定の古いデータも含める
 }
 function getUnpaidTotal(owner,cur) {
-  const last=getLastPaymentDate(owner);
+  const last=getLastPaymentDate(owner,cur);
   return entries.filter(e=>e.owner===owner&&e.currency===cur&&(!last||e.date>last)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
 }
 function getThisMonthTotal(owner,cur) {
