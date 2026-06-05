@@ -57,7 +57,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .google-logo { width: 22px; height: 22px; }
 
 /* ===== ヘッダー ===== */
-.header { background: var(--accent); color: white; padding: 52px 20px 16px; position: sticky; top: 0; z-index: 100; }
+.header { background: var(--accent); color: white; padding: 52px 20px 16px; padding-top: max(52px, calc(env(safe-area-inset-top) + 16px)); position: sticky; top: 0; z-index: 100; }
 .header-row { display: flex; justify-content: space-between; align-items: center; }
 .header-left h1 { font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .header-left .sub { font-size: 11px; opacity: 0.7; margin-top: 2px; font-family: 'DM Mono', monospace; }
@@ -70,7 +70,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .tabs { display: flex; background: var(--accent); padding: 0 20px 16px; gap: 6px; position: sticky; top: 84px; z-index: 100; }
 .tab { flex: 1; padding: 10px 4px; border: none; border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); transition: 0.2s; min-height: 44px; }
 .tab.active { background: white; color: var(--accent); }
-.content { padding: 16px 20px 100px; }
+.content { padding: 16px 20px 100px; padding-bottom: max(100px, calc(env(safe-area-inset-bottom) + 80px)); }
 .section { display: none; }
 .section.active { display: block; }
 
@@ -96,7 +96,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .section-label { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing: 0.08em; margin-bottom: 14px; }
 .field { margin-bottom: 14px; }
 .field label { font-size: 13px; color: var(--text2); display: block; margin-bottom: 6px; }
-.field input, .field select { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 15px; background: var(--surface); color: var(--text); appearance: auto; min-height: 48px; }
+.field input, .field select { width: 100%; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 16px; background: var(--surface); color: var(--text); appearance: auto; min-height: 48px; } /* 16px: iOSのズーム防止 */
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .add-btn { width: 100%; padding: 14px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 16px; font-weight: 700; cursor: pointer; min-height: 52px; }
 .msg { font-size: 13px; text-align: center; margin-top: 10px; height: 20px; }
@@ -143,6 +143,42 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .dot-交通費 { background: #3A7BE0; } .dot-日用品 { background: #9B59B6; } .dot-その他 { background: #95A5A6; }
 .dot- { background: var(--border); } /* カテゴリなしのデフォルト色 */
 
+/* ===== 入金済みポップアップ ===== */
+@keyframes slideUp {
+  from { transform: translateX(-50%) translateY(24px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
+}
+.paid-popup {
+  position: fixed; bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
+  left: 50%; transform: translateX(-50%);
+  background: var(--accent); color: white;
+  padding: 16px 24px; border-radius: 16px;
+  font-family: 'Noto Sans JP', sans-serif; font-size: 14px; font-weight: 700;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.28); z-index: 3000;
+  text-align: center; max-width: 300px; width: 90%;
+  animation: slideUp 0.3s ease;
+}
+
+/* ===== ダークモード ===== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1C1E1B; --surface: #272A26; --surface2: #323530;
+    --text: #E4E8E0; --text2: #A0A49C; --text3: #64685F;
+    --border: rgba(255,255,255,0.1);
+  }
+  .ai-result-card { background: #1E2E14; }
+  .ai-input { background: var(--surface); color: var(--text); border-color: var(--border); }
+  .ai-select { background: var(--surface); color: var(--text); border-color: var(--border); }
+  .modal-box { background: var(--bg); }
+  .google-btn { background: var(--surface); color: var(--text); border-color: var(--border); }
+  .login-title { color: #7EC84A; }
+  .pending-section { background: #2A2010; border-color: #6A4A10; }
+  .pending-item { background: var(--surface); }
+  #photo-overlay { background: rgba(0,0,0,0.97); }
+  .memo-chip { background: var(--surface); color: var(--text2); }
+  .rate-stat { background: var(--surface); }
+}
+
 /* ===== メモチップ ===== */
 .memo-chip { padding: 7px 14px; border: 1.5px solid var(--border); border-radius: 20px; font-size: 13px; font-family: inherit; cursor: pointer; background: var(--surface); color: var(--text2); transition: 0.15s; }
 .memo-chip.selected { background: var(--accent); color: white; border-color: var(--accent); }
@@ -180,7 +216,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .spinner { display: inline-block; width: 22px; height: 22px; border: 2.5px solid rgba(45,80,22,0.25); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 
 /* ===== モーダル（親が担当者選択） ===== */
-.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(26,26,24,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(26,26,24,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .modal-box { background: var(--bg); width: 88%; max-width: 320px; padding: 24px; border-radius: var(--radius); }
 .owner-btn { width: 100%; padding: 15px; margin-bottom: 10px; background: var(--surface); color: var(--text); border: 2px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 52px; }
 .owner-btn:active { background: var(--surface2); }
@@ -433,6 +469,12 @@ firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
+// ① オフライン対応：ネットなしでも動作、復帰時に自動同期
+db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+  if (err.code !== 'failed-precondition' && err.code !== 'unimplemented')
+    console.warn('Persistence error:', err);
+});
+
 // ===== ユーザー設定 =====
 const USER_MAP = {
   'sunnytsukamoto@gmail.com':      { role: 'parent', name: '親' },
@@ -625,6 +667,23 @@ function getPaymentForEntry(entry) {
   return null;
 }
 
+// ===== ② 入金済みポップアップ =====
+function showPaidPopup(data, docId) {
+  const fmt = data.currency === 'JPY'
+    ? `¥${Number(data.amount).toLocaleString('ja-JP')}`
+    : `$${Number(data.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const popup = document.createElement('div');
+  popup.className = 'paid-popup';
+  popup.innerHTML = `✅ 入金済みになりました<br><span style="font-family:'DM Mono',monospace;font-size:20px;letter-spacing:0.02em;">${fmt}</span><br><span style="font-size:12px;opacity:0.75;font-weight:500;">親が精算しました</span>`;
+  document.body.appendChild(popup);
+  db.collection('notifications').doc(docId).update({ read: true }).catch(()=>{});
+  setTimeout(() => {
+    popup.style.transition = 'opacity 0.3s';
+    popup.style.opacity = '0';
+    setTimeout(() => popup.remove(), 300);
+  }, 4500);
+}
+
 // ===== 親の既読管理 =====
 async function loadParentLastRead() {
   try {
@@ -706,7 +765,20 @@ function startFirestore() {
     if (a === 'tab-list') renderList();
   }, err => console.error(err));
 
-  firestoreUnsubs = [u1, u2];
+  // ② 子供用：入金済み通知リスナー
+  const unsubs = [u1, u2];
+  if (currentOwner) {
+    const u3 = db.collection('notifications')
+      .where('owner','==',currentOwner)
+      .where('read','==',false)
+      .onSnapshot(snap => {
+        snap.docChanges().forEach(change => {
+          if (change.type === 'added') showPaidPopup(change.doc.data(), change.doc.id);
+        });
+      }, err => console.warn('Notification listener:', err));
+    unsubs.push(u3);
+  }
+  firestoreUnsubs = unsubs;
 }
 
 // ===== Groq APIキー =====
@@ -1194,7 +1266,14 @@ async function markAsPaid(owner,cur) {
   const fmt=cur==='SGD'?`$${amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:`¥${amount.toLocaleString('ja-JP')}`;
   if(!confirm(`${owner} の ${fmt} を入金済みにしますか？`)) return;
   const ym=new Date().toISOString().substring(0,7);
-  await db.collection('payments').add({owner,date:new Date().toISOString().split('T')[0],amount,currency:cur,...(cur==='JPY'?{month:ym}:{})});
+  const today=new Date().toISOString().split('T')[0];
+  // 支払い記録
+  await db.collection('payments').add({owner,date:today,amount,currency:cur,...(cur==='JPY'?{month:ym}:{})});
+  // 子供へのポップアップ通知
+  await db.collection('notifications').add({
+    owner, amount, currency:cur, date:today, read:false,
+    createdAt:firebase.firestore.FieldValue.serverTimestamp()
+  });
 }
 
 function renderPaymentHistory(owner) {
