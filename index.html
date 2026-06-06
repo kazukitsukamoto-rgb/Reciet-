@@ -916,7 +916,10 @@ async function compressForStorage(file) {
       URL.revokeObjectURL(url);
       const iw = img.naturalWidth, ih = img.naturalHeight;
       const needSwap = ori === 6 || ori === 8;
-      const eff = (needSwap && iw <= ih) ? 1 : ori; // ブラウザが既にEXIF補正済みなら適用しない
+      let eff;
+      if (needSwap && iw <= ih) eff = 1;       // ブラウザが既にEXIF補正済み
+      else if (ori === 1 && iw > ih * 1.2) eff = 6; // EXIFなし+横長→90°CW自動補正（レシートは必ず縦長）
+      else eff = ori;
       const sw = eff === 6 || eff === 8;
       const MAX = 800, rawW = sw ? ih : iw, rawH = sw ? iw : ih;
       const s = Math.min(MAX / rawW, MAX / rawH, 1);
@@ -936,7 +939,10 @@ async function preprocessImage(file) {
       URL.revokeObjectURL(url);
       const iw = img.naturalWidth, ih = img.naturalHeight;
       const needSwap = ori === 6 || ori === 8;
-      const eff = (needSwap && iw <= ih) ? 1 : ori; // ブラウザが既にEXIF補正済みなら適用しない
+      let eff;
+      if (needSwap && iw <= ih) eff = 1;       // ブラウザが既にEXIF補正済み
+      else if (ori === 1 && iw > ih * 1.2) eff = 6; // EXIFなし+横長→90°CW自動補正（レシートは必ず縦長）
+      else eff = ori;
       const sw = eff === 6 || eff === 8;
       const MAX = 2000, rawW = sw ? ih : iw, rawH = sw ? iw : ih;
       const s = Math.min(MAX / rawW, MAX / rawH, 1);
