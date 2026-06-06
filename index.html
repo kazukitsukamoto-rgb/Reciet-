@@ -950,9 +950,12 @@ async function preprocessImage(file) {
       const cv = document.createElement('canvas'); cv.width = dw; cv.height = dh;
       const ctx = cv.getContext('2d');
       applyExifRotation(ctx, img, eff, dw, dh);
-      const id = ctx.getImageData(0, 0, dw, dh);
-      const orig = new Uint8ClampedArray(id.data), d = id.data;
-      // シャープニングフィルター（シワレシートのテキストエッジを鮮明化）
+      const id = ctx.getImageData(0, 0, dw, dh), d = id.data;
+      // ガンマ補正（γ=0.7）: 影・薄い印字・暗部を明るく底上げ
+      const gLUT = Uint8Array.from({length:256}, (_,i) => Math.round(255*Math.pow(i/255, 0.7)));
+      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = gLUT[d[i+c]];
+      // シャープニングフィルター（ブレ・ピンボケ・シワのエッジを鮮明化）
+      const orig = new Uint8ClampedArray(d);
       for (let y = 1; y < dh-1; y++) for (let x = 1; x < dw-1; x++) {
         const i = (y*dw+x)*4;
         for (let c = 0; c < 3; c++)
@@ -960,8 +963,8 @@ async function preprocessImage(file) {
             5*orig[i+c] - orig[((y-1)*dw+x)*4+c] - orig[((y+1)*dw+x)*4+c]
             - orig[(y*dw+x-1)*4+c] - orig[(y*dw+x+1)*4+c]));
       }
-      // コントラスト強調
-      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = Math.min(255, Math.max(0, (d[i+c]-128)*1.5+128));
+      // コントラスト強調（光の反射・低コントラストを補正）
+      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = Math.min(255, Math.max(0, (d[i+c]-128)*1.6+128));
       ctx.putImageData(id, 0, 0);
       cv.toBlob(resolve, 'image/jpeg', 0.92);
     };
@@ -981,21 +984,24 @@ async function analyzeReceipt(file, apiKey) {
         {role:'system',content:'あなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
         {role:'user',content:[
           {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
-          {type:'text',text:`画像が横向き・逆さまでも、シワ・汚れがあっても正確に読み取ること。
+          {type:'text',text:`以下の問題があっても最善を尽くして読み取ること：手ブレ・ピンボケ・影・光の反射・薄い印字・シワ・手書き文字・背景の混入・特殊フォント・複雑なレイアウト。背景や別の紙が映り込んでいてもレシート部分だけを読むこと。
 
-【ステップ1】レシートの金額行を特定して列挙:
-- 合計/TOTAL行: ¥? (使用する)
-- お預り/お預かり行: ¥? (使用しない・客が渡した金額)
-- お釣り/CHANGE行: ¥? (使用しない・返金額)
+【ステップ1】金額行を特定:
+- 合計/TOTAL/請求金額行: ¥? → 使用する（複数ある場合は最下部の最終合計行）
+- お預り/お預かり行: ¥? → 使用しない（客が渡した金額）
+- お釣り/CHANGE行: ¥? → 使用しない（返金額）
+かすれ・手書き・光飛びで読みにくくても推測して記載すること。
 
-【ステップ2】ステップ1の「合計行の金額のみ」を使い以下のJSONを出力:
+【ステップ2】ステップ1の合計行の金額のみを使いJSON出力（余分な説明不要）:
 {"payee":"店舗名","amount":数値,"currency":"SGD か JPY","date":"YYYY-MM-DD","category":"食費・外食・交通費・日用品・その他","amount_confident":true}
 
 【絶対ルール】
-- amountはお預り・お釣りの数値を絶対に使わない
-- シワで行が歪んでいても異なる行の数字を結合しない（「2,」と「400」を繋げて「2400」にしない）
+- amountはお預り・お釣りを絶対使わない
+- 複数の合計行がある場合は最下部（最後）の行を使用
+- 異なる行の数字を結合しない（「2,」+「400」→「2400」は誤り）
+- 画質が悪く合計が読めない場合のみ: amount_confident=false
 - currency: "$"/"S$"/"SGD"/英語→"SGD"、"¥"/"円"/"JPY"/日本語→"JPY"
-- date: YYYY-MM-DD形式、不明なら"${today}"
+- date: YYYY-MM-DD、不明なら"${today}"
 - category: 食品・スーパー→"食費"、飲食店・カフェ→"外食"、交通→"交通費"、薬局・雑貨→"日用品"、その他→"その他"`}
         ]}
       ]})
