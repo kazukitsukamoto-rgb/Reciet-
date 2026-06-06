@@ -968,19 +968,23 @@ async function analyzeReceipt(file, apiKey) {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
     body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:400,temperature:0,
       messages:[
-        {role:'system',content:'あなたはレシート・領収書の読み取り専門家です。JSON形式のみ返してください。余分な説明・コードブロックは不要です。'},
+        {role:'system',content:'あなたはレシート・領収書のOCR専門家です。JSON形式のみ返してください。余分な説明・コードブロックは不要です。'},
         {role:'user',content:[
           {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
-          {type:'text',text:`画像が横向き・逆さまになっていても正確に読み取ること。このレシート画像を解析し、以下のJSON形式のみで返してください（説明文不要）:
+          {type:'text',text:`画像が横向き・逆さまになっていても正確に読み取ること。シワや汚れがあっても最善を尽くすこと。このレシート画像を解析し、以下のJSON形式のみで返してください（説明文不要）:
 {"payee":"店舗名","amount":数値,"currency":"SGD か JPY","date":"YYYY-MM-DD","category":"食費・外食・交通費・日用品・その他","amount_confident":true}
 
-【抽出ルール】
+【amountの抽出ルール（最重要）】
+✅ 使う: 合計・お買上合計・お会計・請求金額・TOTAL・AMOUNT DUE のラベルが付いた金額
+❌ 絶対使わない: お預り・お預かり（客が渡した金額）、お釣り・おつり（返金額）、各商品の個別金額
+複数の合計がある場合は税込の最終合計（一番最後の合計行）を使用。
+
+【その他ルール】
 payee: レシートに記載の店舗名・会社名（略さずフルネームで）
-amount: TOTAL / AMOUNT DUE / 合計 / お買上合計 / お会計 / 請求合計 の最終金額（数値のみ）。税込合計を優先。小計(subtotal)は使わない。
 currency: "$"/"S$"/"SGD"/英語→"SGD"、"¥"/"円"/"JPY"/日本語→"JPY"
 date: レシート記載の日付をYYYY-MM-DD形式で。不明なら"${today}"
 category: スーパー・食品・飲料→"食費"、レストラン・カフェ・飲食店→"外食"、電車・バス・タクシー・MRT→"交通費"、薬局・コンビニ・日用雑貨→"日用品"、それ以外→"その他"
-amount_confident: 合計が明確に読み取れた場合true、不鮮明・複数の異なる合計・読み取り不能な場合false`}
+amount_confident: 合計が明確に読み取れた場合true、シワや汚れで不鮮明・読み取り不能な場合false`}
         ]}
       ]})
   });
