@@ -420,6 +420,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
       </div>
       <div class="filter-row">
         <select id="filter-month" onchange="renderList()"><option value="">すべての月</option></select>
+        <button class="export-btn" onclick="exportCSV()">📥 CSV</button>
       </div>
       <div id="entry-list"><div class="empty">読み込み中...</div></div>
     </div>
@@ -449,6 +450,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
     <div class="field-row">
       <div class="field"><label>カテゴリ</label>
         <select id="edit-cat">
+          <option value="">-- なし --</option>
           <option value="食費">食費</option><option value="外食">外食</option>
           <option value="交通費">交通費</option><option value="日用品">日用品</option>
           <option value="その他">その他</option>
@@ -628,6 +630,17 @@ function setupForm() {
     ownerSel.value = currentOwner;
   }
   updateCurrencyDisplay();
+  initTabsStickyPosition();
+}
+
+// タブのsticky位置をヘッダーの実際の高さに合わせる
+function initTabsStickyPosition() {
+  const header = document.querySelector('.header');
+  const tabs   = document.querySelector('.tabs');
+  if (!header || !tabs) return;
+  const update = () => { tabs.style.top = header.offsetHeight + 'px'; };
+  update();
+  new ResizeObserver(update).observe(header);
 }
 
 // ===== GroqキーをFirestoreから読み込む =====
@@ -819,6 +832,7 @@ function setApiKeyStatus(isSet) {
 function saveApiKey() {
   const key = document.getElementById('api-key-input').value.trim();
   if (!key) { showMessage('APIキーを入力してください','#e74c3c'); return; }
+  groqApiKey = key; // メモリ上の変数も更新
   localStorage.setItem('groq_api_key', key);
   document.getElementById('api-key-input').value = '';
   document.getElementById('api-settings-body').style.display = 'none';
@@ -827,6 +841,7 @@ function saveApiKey() {
 }
 function clearApiKey() {
   if (!confirm('APIキーを削除しますか？')) return;
+  groqApiKey = null; // メモリ上の変数もクリア
   localStorage.removeItem('groq_api_key');
   setApiKeyStatus(false);
   document.getElementById('api-settings-body').style.display = 'block';
@@ -1321,8 +1336,8 @@ function renderList() {
     }
   }
 
-  // 通常一覧（pending以外）
-  const normal=filtered.filter(e=>e.status!=='pending');
+  // 通常一覧（親はpending除外、子供はpending含む）
+  const normal = isParentMode ? filtered.filter(e=>e.status!=='pending') : filtered;
   if(!normal.length&&!pendingHtml){list.innerHTML='<div class="empty">データがありません</div>';return;}
   list.innerHTML=pendingHtml+normal.map(e=>{
     const sym=e.currency==='SGD'?'$':'¥';
@@ -1330,7 +1345,10 @@ function renderList() {
     const newBadge=isNewEntry(e)
       ?`<span style="display:inline-block;background:#5A8A2E;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;letter-spacing:0.04em;">NEW</span>`
       :'';
-    // ※ pending項目は通常一覧から除外済みのため pendingBadge は不要
+    // 子供の承認待ちバッジ
+    const pendingBadge = !isParentMode && e.status === 'pending'
+      ? `<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
+      : '';
     // 写真なしバッジ
     const noPhotoBadge=!e.imageData
       ?`<span style="display:inline-block;font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">📎 写真なし</span>`
@@ -1353,7 +1371,7 @@ function renderList() {
       <div style="display:flex;align-items:flex-start;gap:10px;">
         <div class="entry-dot dot-${escHtml(e.cat)}" style="margin-top:5px;flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
-          <div class="entry-payee">${escHtml(e.payee)}${newBadge}</div>
+          <div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div>
           <div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}${noPhotoBadge}${paidBadge}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
@@ -1450,7 +1468,7 @@ function csvField(v) {
 function exportCSV() {
   if(!entries.length) return;
   let csv='日付,担当,カテゴリ,通貨,支払先,金額,メモ\n';
-  entries.forEach(e=>{csv+=[e.date,e.owner,e.cat,e.currency,e.payee,e.amount,e.memo??''].map(csvField).join(',')+'\n';});
+  entries.filter(e=>e.status!=='rejected').forEach(e=>{csv+=[e.date,e.owner,e.cat,e.currency,e.payee,e.amount,e.memo??''].map(csvField).join(',')+'\n';});
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`receipt_export_${Date.now()}.csv`; a.click();
 }
