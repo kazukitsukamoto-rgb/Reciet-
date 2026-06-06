@@ -126,7 +126,6 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 /* ===== 一覧 ===== */
 .filter-row { display: flex; gap: 8px; margin-bottom: 10px; }
 .filter-row select { flex: 1; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 14px; background: var(--surface); color: var(--text); min-height: 44px; }
-.export-btn { padding: 10px 14px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 13px; cursor: pointer; color: var(--text2); white-space: nowrap; min-height: 44px; }
 .pf-row { display: flex; gap: 6px; margin-bottom: 12px; }
 .pf-btn { flex: 1; padding: 9px 4px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; background: var(--surface); color: var(--text2); min-height: 44px; }
 .pf-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
@@ -420,7 +419,6 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
       </div>
       <div class="filter-row">
         <select id="filter-month" onchange="renderList()"><option value="">すべての月</option></select>
-        <button class="export-btn" onclick="exportCSV()">📥 CSV</button>
       </div>
       <div id="entry-list"><div class="empty">読み込み中...</div></div>
     </div>
@@ -1460,17 +1458,6 @@ function showMessage(txt,color='#2D5016') {
   const m=document.getElementById('form-msg');
   m.textContent=txt; m.style.color=color;
   setTimeout(()=>m.textContent='',2500);
-}
-function csvField(v) {
-  const s=String(v??'');
-  return (s.includes(',')||s.includes('"')||s.includes('\n'))?'"'+s.replace(/"/g,'""')+'"':s;
-}
-function exportCSV() {
-  if(!entries.length) return;
-  let csv='日付,担当,カテゴリ,通貨,支払先,金額,メモ\n';
-  entries.filter(e=>e.status!=='rejected').forEach(e=>{csv+=[e.date,e.owner,e.cat,e.currency,e.payee,e.amount,e.memo??''].map(csvField).join(',')+'\n';});
-  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`receipt_export_${Date.now()}.csv`; a.click();
 }
 </script>
 </body>
