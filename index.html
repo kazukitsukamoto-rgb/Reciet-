@@ -1074,7 +1074,7 @@ async function analyzeReceipt(file, apiKey) {
     try{const parsed=JSON.parse(m[0]); if(parsed.amount!==undefined&&parsed.payee!==undefined){p=parsed;break;}}catch(e){}
   }
   if(!p) throw new Error('JSONを取得できませんでした');
-  return {date:p.date||today,payee:String(p.payee||''),amount:Number(p.amount)||0,cat:p.category||'食費',currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'),amountConfident:p.amount_confident!==false};
+  return {date:p.date||today,payee:String(p.payee||''),amount:Number(String(p.amount).replace(/,/g,''))||0,cat:p.category||'食費',currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'),amountConfident:p.amount_confident!==false};
 }
 function fileToBase64(file) {
   return new Promise((resolve,reject)=>{
@@ -1117,7 +1117,7 @@ async function confirmAI(forceAdd = false) {
   if(!aiData) return;
   const date=document.getElementById('ai-date').value, payee=document.getElementById('ai-payee').value.trim();
   const amount=Number(document.getElementById('ai-amount').value), cur=document.getElementById('ai-currency').value, cat=document.getElementById('ai-cat').value;
-  if(!date||!payee||!amount){showMessage('入力が不足しています','#e74c3c');return;}
+  if(!date||!payee||amount<=0){showMessage('入力が不足しています（金額は1以上）','#e74c3c');return;}
 
   // 重複チェック
   if (!forceAdd && findDuplicate(date, payee, amount, cur)) {
@@ -1175,7 +1175,7 @@ async function addEntry(forceAdd = false) {
   const amount=Number(document.getElementById('f-amount').value);
   const cat=document.getElementById('f-cat').value, cur=ownerToCurrency(owner), memo=document.getElementById('f-memo').value;
   const payee = memo || cat || '手動入力';
-  if(!date||!amount){showMessage('日付と金額を入力してください','#e74c3c');return;}
+  if(!date||amount<=0){showMessage('日付と金額を入力してください（金額は1以上）','#e74c3c');return;}
 
   // 重複チェック（手動入力は日付・金額・通貨のみで判定）
   if (!forceAdd && findDuplicate(date, payee, amount, cur, true)) {
@@ -1183,6 +1183,9 @@ async function addEntry(forceAdd = false) {
     return;
   }
 
+  // 二重タップ防止：保存中はボタン無効化
+  const addBtn = document.querySelector('#tab-add .add-btn');
+  if (addBtn) { addBtn.disabled = true; addBtn.textContent = '保存中...'; }
   try {
     await db.collection('receipts').add({date,payee,amount,cat,owner,currency:cur,memo,imageData:null,status:'approved',createdAt:firebase.firestore.FieldValue.serverTimestamp()});
     document.getElementById('f-amount').value='';
@@ -1191,6 +1194,7 @@ async function addEntry(forceAdd = false) {
     document.getElementById('dup-warning-manual')?.remove();
     showMessage('追加しました！');
   } catch(e){showMessage('保存エラー','#e74c3c');}
+  if (addBtn) { addBtn.disabled = false; addBtn.textContent = '追加する'; }
 }
 
 // ===== 重複警告表示 =====
@@ -1232,7 +1236,7 @@ function openEditModal(id) {
   document.getElementById('edit-date').value     = e.date     || '';
   document.getElementById('edit-owner').value    = e.owner    || 'Kazuki';
   document.getElementById('edit-payee').value    = e.payee    || '';
-  document.getElementById('edit-cat').value      = e.cat      || '食費';
+  document.getElementById('edit-cat').value      = e.cat      ?? '';
   document.getElementById('edit-currency').value = e.currency || 'SGD';
   document.getElementById('edit-amount').value   = e.amount   || '';
   document.getElementById('edit-memo').value     = e.memo     || '';
@@ -1251,7 +1255,7 @@ async function saveEdit() {
   const cur    = document.getElementById('edit-currency').value;
   const amount = Number(document.getElementById('edit-amount').value);
   const memo   = document.getElementById('edit-memo').value;
-  if (!date || !payee || !amount) { alert('入力が不足しています'); return; }
+  if (!date || !payee || amount <= 0) { alert('入力が不足しています（金額は1以上）'); return; }
   const btn = document.getElementById('edit-save-btn');
   btn.disabled = true; btn.textContent = '保存中...';
   try {
