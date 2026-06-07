@@ -913,6 +913,12 @@ async function selectOwner(ownerName) {
   imageFile = null;
   confirmBtn.disabled = false;
   renderAIResult(errorMsg);
+
+  // 読み取り直後に重複チェック（確認ボタンを押す前に気づけるように）
+  if (aiData && aiData.payee && aiData.amount &&
+      findDuplicate(aiData.date, aiData.payee, aiData.amount, aiData.currency)) {
+    showDuplicateWarning('ai');
+  }
 }
 
 function defaultAiData(ownerName) {
