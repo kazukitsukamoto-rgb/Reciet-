@@ -509,6 +509,10 @@ firebase.initializeApp(firebaseConfig);
 const db   = firebase.firestore();
 const auth = firebase.auth();
 
+// アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
+// （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
+const APP_BUILD = '2026-06-09-1';
+
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
   if (err.code !== 'failed-precondition' && err.code !== 'unimplemented')
@@ -516,28 +520,24 @@ db.enablePersistence({ synchronizeTabs: true }).catch(err => {
 });
 
 // ===== 新バージョン検知 → 自動更新（ホーム画面に追加した「アプリ」でも気づかぬうちに最新化） =====
-// サービスワーカーは使っていないが、ホーム画面アプリは古いHTMLをキャッシュし続けることがあるため、
-// アプリを開く・前面に戻るたびにサーバー上の最新HTMLを取得し、内容が変わっていたら
-// 入力中やモーダル表示中でなければ自動で読み込み直して最新版にする（ボタン操作不要）。
-let __appSnapshot = null;
+// iPhoneでホーム画面に追加した「アプリ」は、Safariと違って古いHTMLを
+// キャッシュしたまま開いてしまうことがある（プルダウン更新も効かない）。
+// そこで「読み込み直後」と「前面に戻った時」の両方で、サーバー上の最新HTMLを
+// キャッシュ無視で取得し、埋め込まれたビルド番号(APP_BUILD)を比較。
+// 違っていれば、入力中やモーダル表示中でなければ自動で読み込み直す（操作不要）。
+// ※ コードを変更したら、上の APP_BUILD の値を必ず新しい文字列に変更すること。
 let __reloadingForUpdate = false;
 function __selfUrl() {
-  return location.href.split('#')[0].split('?')[0] + '?_v=' + Date.now();
-}
-async function captureAppSnapshot() {
-  try {
-    const res = await fetch(__selfUrl(), { cache: 'no-store' });
-    if (res.ok) __appSnapshot = await res.text();
-  } catch (e) { /* オフライン時などは無視 */ }
+  return location.href.split('#')[0].split('?')[0] + '?_v=' + Date.now() + Math.random();
 }
 async function checkForAppUpdate() {
-  if (!__appSnapshot || __reloadingForUpdate) return;
+  if (__reloadingForUpdate) return;
   try {
     const res = await fetch(__selfUrl(), { cache: 'no-store' });
-    if (res.ok) {
-      const latest = await res.text();
-      if (latest && latest !== __appSnapshot) scheduleAutoReload();
-    }
+    if (!res.ok) return;
+    const latest = await res.text();
+    const m = latest.match(/const APP_BUILD\s*=\s*'([^']+)'/);
+    if (m && m[1] && m[1] !== APP_BUILD) scheduleAutoReload();
   } catch (e) { /* オフライン時などは無視 */ }
 }
 // 入力中・モーダル表示中にいきなり再読み込みされて作業内容が消えないよう、
@@ -560,11 +560,15 @@ function scheduleAutoReload() {
   };
   tryNow();
 }
-captureAppSnapshot();
+// 起動直後（キャッシュされた古いHTMLで開いてしまった場合に備えて）
+setTimeout(checkForAppUpdate, 1200);
+// 前面に戻った時
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') checkForAppUpdate();
 });
 window.addEventListener('focus', checkForAppUpdate);
+// 開きっぱなしの時も、念のため定期的に確認する
+setInterval(checkForAppUpdate, 10 * 60 * 1000);
 
 // ===== ユーザー設定（認証後にFirestoreから読み込む） =====
 let USER_MAP = {};
