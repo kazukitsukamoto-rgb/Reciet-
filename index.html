@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-6';
+const APP_BUILD = '2026-06-09-7';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -635,6 +635,9 @@ function signOutUser() {
 // ===== スプラッシュの進捗ゲージ（あとどれくらいで開くか分かるように） =====
 // 実際の読み込み段階（Firebase初期化→ログイン状態確認→ユーザー情報取得→画面切替）
 // に合わせてパーセントを進める。完全な実測ではないが、おおよその目安として表示する。
+// ※ splashHidden は setSplashProgress より先に宣言しておくこと
+//   （先に呼び出すと「宣言前に変数を参照した」エラーでスクリプト全体が止まってしまう）
+let splashHidden = false;
 let __splashPct = 0;
 function setSplashProgress(pct) {
   if (splashHidden || pct <= __splashPct) return;
@@ -647,7 +650,6 @@ function setSplashProgress(pct) {
 setSplashProgress(8); // スクリプト読み込み開始
 
 // ===== スプラッシュを消す =====
-let splashHidden = false;
 function hideSplash() {
   if (splashHidden) return;
   setSplashProgress(100);
