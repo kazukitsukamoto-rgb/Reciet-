@@ -41,7 +41,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 #splash-screen .splash-progress-bar {
   height: 100%; width: 0%; border-radius: 999px;
   background: linear-gradient(90deg, #66B82E, #C7E8A8);
-  transition: width 0.4s ease;
+  transition: width 0.25s ease;
 }
 #splash-screen .splash-progress-pct {
   color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 9px;
@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-7';
+const APP_BUILD = '2026-06-09-8';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -650,15 +650,22 @@ function setSplashProgress(pct) {
 setSplashProgress(8); // スクリプト読み込み開始
 
 // ===== スプラッシュを消す =====
+// ゲージを100%にした「直後」にフェードアウトを始めると、バーのアニメーション(0.25秒)
+// より先に画面が消えてしまい「ゲージが追いついていないまま開いた」ように見える。
+// なので、ゲージが見た目上100%に到達するのを少し待ってから消すようにする。
+let __splashClosing = false;
 function hideSplash() {
-  if (splashHidden) return;
+  if (splashHidden || __splashClosing) return;
+  __splashClosing = true;
   setSplashProgress(100);
-  splashHidden = true;
   const splash = document.getElementById('splash-screen');
-  if (!splash) return;
-  splash.style.transition = 'opacity 0.2s ease';
-  splash.style.opacity = '0';
-  setTimeout(() => splash.remove(), 200);
+  if (!splash) { splashHidden = true; return; }
+  setTimeout(() => {
+    splashHidden = true;
+    splash.style.transition = 'opacity 0.2s ease';
+    splash.style.opacity = '0';
+    setTimeout(() => splash.remove(), 200);
+  }, 320); // ゲージのアニメーション(0.25秒)が見た目上完了するのを待つ
 }
 // 保険：読み込みが長引いた時の対応。
 // 以前は「一定時間経ったら強制的にスプラッシュを消す」処理だったが、
@@ -667,7 +674,7 @@ function hideSplash() {
 // → スプラッシュは無理に消さず、緑の背景はそのままに案内文と
 //   再読み込みボタンを表示する（読み込みは裏で続行中。終われば自動で正しい画面に切り替わる）
 setTimeout(() => {
-  if (splashHidden || document.getElementById('splash-slow-msg')) return;
+  if (splashHidden || __splashClosing || document.getElementById('splash-slow-msg')) return;
   const splash = document.getElementById('splash-screen');
   if (!splash) return;
   const msg = document.createElement('div');
