@@ -752,9 +752,12 @@ function isNewEntry(entry) {
 // ===== 担当者ごとの通し番号（古い順 #1〜・月フィルターを変えても変動しない） =====
 function getPersonSequenceNumber(entry) {
   if (!entry.owner) return null;
+  // 追加した順（createdAt昇順）でソート。レシート自体の日付ではなく登録順。
+  const toMs = e => e.createdAt?.toMillis ? e.createdAt.toMillis()
+              : (e.createdAt?.seconds ? e.createdAt.seconds * 1000 : 0);
   const personEntries = entries
     .filter(e => e.owner === entry.owner && e.status !== 'rejected')
-    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+    .sort((a,b) => toMs(a) - toMs(b));
   const idx = personEntries.findIndex(e => e.id === entry.id);
   return idx >= 0 ? idx + 1 : null;
 }
