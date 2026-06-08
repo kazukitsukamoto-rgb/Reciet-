@@ -514,7 +514,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-3';
+const APP_BUILD = '2026-06-09-4';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -628,12 +628,15 @@ function hideSplash() {
   splash.style.opacity = '0';
   setTimeout(() => splash.remove(), 200);
 }
-// 最大1秒で強制終了（Firebase読み込みが遅い場合の保険）
-setTimeout(hideSplash, 1000);
+// 最大4秒で強制終了（何らかの理由でログイン判定が終わらない場合の保険。
+// 短すぎると、判定中に白い画面が見えてしまうため少し長めに設定）
+setTimeout(hideSplash, 4000);
 
 // ===== 認証状態の監視 =====
 auth.onAuthStateChanged(async user => {
-  hideSplash();
+  // 重要：ここでスプラッシュを消すと「次の画面の準備ができる前」に消えてしまい、
+  // スプラッシュ→白紙→本画面、という一瞬の白い画面が挟まる。
+  // なので、切り替え先の画面の表示準備が整った直後（各分岐の最後）で消す。
   if (user) {
     // 認証後にユーザーマップを読み込む（セキュリティルール対応）
     try {
@@ -646,6 +649,7 @@ auth.onAuthStateChanged(async user => {
       document.getElementById('login-error').textContent = `このアカウント（${user.email}）は登録されていません`;
       document.getElementById('login-error').style.display = 'block';
       auth.signOut();
+      hideSplash();
       return;
     }
     // ログイン成功
@@ -660,10 +664,11 @@ auth.onAuthStateChanged(async user => {
     }
     document.getElementById('parent-badge').style.display = isParentMode ? 'inline' : 'none';
 
-    // 画面切替
+    // 画面切替 → 切り替え終わった直後にスプラッシュを消す（白紙が挟まらない）
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('main-app').style.display = 'block';
     setupForm();
+    hideSplash();
 
     // Firestore 開始
     startFirestore();
@@ -674,6 +679,7 @@ auth.onAuthStateChanged(async user => {
   } else {
     document.getElementById('main-app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
+    hideSplash();
   }
 });
 
