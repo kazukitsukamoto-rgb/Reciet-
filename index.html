@@ -11,9 +11,6 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%2366B82E'/><stop offset='100%25' stop-color='%231A3C08'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='white' stop-opacity='0.32'/><stop offset='100%25' stop-color='white' stop-opacity='0'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g1)'/><rect width='100' height='52' rx='22' fill='url(%23g2)'/><path d='M30 25 H70 V73 L65 79 L60 73 L55 79 L50 73 L45 79 L40 73 L35 79 L30 73 Z' fill='white' opacity='0.95'/><text x='50' y='59' font-family='Hiragino Sans,Yu Gothic,sans-serif' font-size='25' font-weight='900' text-anchor='middle' fill='%231A3C08'>塚</text></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g1' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%2366B82E'/><stop offset='100%25' stop-color='%231A3C08'/></linearGradient><linearGradient id='g2' x1='0' y1='0' x2='0' y2='1'><stop offset='0%25' stop-color='white' stop-opacity='0.32'/><stop offset='100%25' stop-color='white' stop-opacity='0'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='url(%23g1)'/><rect width='100' height='52' rx='22' fill='url(%23g2)'/><path d='M30 25 H70 V73 L65 79 L60 73 L55 79 L50 73 L45 79 L40 73 L35 79 L30 73 Z' fill='white' opacity='0.95'/><text x='50' y='59' font-family='Hiragino Sans,Yu Gothic,sans-serif' font-size='25' font-weight='900' text-anchor='middle' fill='%231A3C08'>塚</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <style>
 :root {
   --bg: #F7F5F0; --surface: #FFFFFF; --surface2: #F0EDE6;
@@ -495,6 +492,12 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
   </div>
 </div>
 
+<!-- Firebase SDK はここで読み込む（<head>に置くと、読み込み完了までスプラッシュ画面すら
+     表示できず白い画面が長く続いてしまうため、本文を先に描画させてから読み込む） -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 <script>
 // ===== Firebase 初期化 =====
 const firebaseConfig = {
@@ -511,7 +514,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-2';
+const APP_BUILD = '2026-06-09-3';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
