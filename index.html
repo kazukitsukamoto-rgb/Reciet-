@@ -749,6 +749,16 @@ function isNewEntry(entry) {
   return createdAt > parentLastRead;
 }
 
+// ===== 担当者ごとの通し番号（古い順 #1〜・月フィルターを変えても変動しない） =====
+function getPersonSequenceNumber(entry) {
+  if (!entry.owner) return null;
+  const personEntries = entries
+    .filter(e => e.owner === entry.owner && e.status !== 'rejected')
+    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  const idx = personEntries.findIndex(e => e.id === entry.id);
+  return idx >= 0 ? idx + 1 : null;
+}
+
 function updateListBadge() {
   if (!isParentMode) return;
   const newCount     = entries.filter(e => isNewEntry(e)).length;
@@ -1357,6 +1367,11 @@ function renderList() {
     const pendingBadge = !isParentMode && e.status === 'pending'
       ? `<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
       : '';
+    // 担当者を絞り込んでいる時だけ：古い順の通し番号
+    const seqNum = currentPersonFilter ? getPersonSequenceNumber(e) : null;
+    const seqLabel = seqNum
+      ? `<span style="font-family:'DM Mono',monospace;font-weight:700;color:var(--accent);">#${seqNum}</span> · `
+      : '';
     // 写真なしバッジ
     const noPhotoBadge=!e.imageData
       ?`<span style="display:inline-block;font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">📎 写真なし</span>`
@@ -1380,7 +1395,7 @@ function renderList() {
         <div class="entry-dot dot-${escHtml(e.cat)}" style="margin-top:5px;flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
           <div class="entry-payee">${escHtml(e.payee)}${newBadge}${pendingBadge}</div>
-          <div class="entry-meta">${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}${noPhotoBadge}${paidBadge}</div>
+          <div class="entry-meta">${seqLabel}${escHtml(e.date||'')} · ${escHtml(e.owner||'')} · ${escHtml(e.cat||'')}${e.memo?' · '+escHtml(e.memo):''}${noPhotoBadge}${paidBadge}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;">
           ${photoThumb}
