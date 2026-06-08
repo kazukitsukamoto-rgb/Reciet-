@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-8';
+const APP_BUILD = '2026-06-09-9';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -581,10 +581,12 @@ function scheduleAutoReload() {
 // 起動直後（キャッシュされた古いHTMLで開いてしまった場合に備えて）
 setTimeout(checkForAppUpdate, 1200);
 // 前面に戻った時
+// （'focus' も併用すると、タブ/アプリ復帰時に visibilitychange と
+//  ほぼ同時に発火してfetchが二重に飛ぶことがあるため、モバイルでも
+//  確実に発火する visibilitychange のみを使う）
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') checkForAppUpdate();
 });
-window.addEventListener('focus', checkForAppUpdate);
 // 開きっぱなしの時も、念のため定期的に確認する
 setInterval(checkForAppUpdate, 10 * 60 * 1000);
 
@@ -745,6 +747,20 @@ function ownerToCurrency(owner) {
   return owner === 'Hirotaka' ? 'JPY' : 'SGD';
 }
 
+// ===== ローカル日付・月の取得（タイムゾーンのズレ対策） =====
+// new Date().toISOString() はUTC（協定世界時）基準の日時を返すため、
+// 日本時間(UTC+9)やシンガポール時間(UTC+8)では、深夜0時〜朝9時頃まで
+// 「UTC上はまだ前日」という状態になり、日付や月の判定が1日分ズレてしまう。
+// （例：日本時間で6/1の朝7時なのに、UTCでは5/31の22時 → 「前日・先月」扱いになる）
+// そのため「今日の日付」「今月」が必要な箇所は、必ずこの関数を使う。
+function localDateStr(d = new Date()) {
+  const tz = d.getTimezoneOffset() * 60000; // 分→ミリ秒
+  return new Date(d.getTime() - tz).toISOString().split('T')[0];
+}
+function localMonthStr(d = new Date()) {
+  return localDateStr(d).substring(0, 7);
+}
+
 // ===== 通貨表示を更新 =====
 function updateCurrencyDisplay() {
   const owner = isParentMode ? document.getElementById('f-owner').value : currentOwner;
@@ -754,7 +770,9 @@ function updateCurrencyDisplay() {
 
 // ===== フォーム初期化 =====
 function setupForm() {
-  document.getElementById('f-date').valueAsDate = new Date();
+  // valueAsDate に Date を渡すとUTC基準で解釈されるため、日本時間の早朝(0〜9時)に
+  // 前日の日付が入ってしまう。ローカル日付の文字列を直接セットする。
+  document.getElementById('f-date').value = localDateStr();
   const ownerWrap = document.getElementById('f-owner-wrap');
   const ownerSel  = document.getElementById('f-owner');
   if (isParentMode) {
@@ -885,17 +903,21 @@ function isNewEntry(entry) {
   return createdAt > parentLastRead;
 }
 
-// ===== 担当者ごとの通し番号（古い順 #1〜・月フィルターを変えても変動しない） =====
-function getPersonSequenceNumber(entry) {
-  if (!entry.owner) return null;
+// ===== 担当者ごとの通し番号マップ（古い順 #1〜・月フィルターを変えても変動しない） =====
+// 以前は一覧の行ごとに毎回「全件フィルター→ソート→検索」していたため、
+// 件数が増えるほど描画が重くなっていた(O(件数の2乗))。
+// 描画前に1回だけ計算してMapにしておき、各行はそこから引くだけにする。
+function buildSequenceMap(owner) {
+  if (!owner) return null;
   // 追加した順（createdAt昇順）でソート。レシート自体の日付ではなく登録順。
   const toMs = e => e.createdAt?.toMillis ? e.createdAt.toMillis()
               : (e.createdAt?.seconds ? e.createdAt.seconds * 1000 : 0);
-  const personEntries = entries
-    .filter(e => e.owner === entry.owner && e.status !== 'rejected')
-    .sort((a,b) => toMs(a) - toMs(b));
-  const idx = personEntries.findIndex(e => e.id === entry.id);
-  return idx >= 0 ? idx + 1 : null;
+  const map = new Map();
+  entries
+    .filter(e => e.owner === owner && e.status !== 'rejected')
+    .sort((a,b) => toMs(a) - toMs(b))
+    .forEach((e, i) => map.set(e.id, i + 1));
+  return map;
 }
 
 function updateListBadge() {
@@ -1071,7 +1093,7 @@ async function selectOwner(ownerName) {
 }
 
 function defaultAiData(ownerName) {
-  return { date:new Date().toISOString().split('T')[0], payee:'', amount:'', cat:'食費', owner:ownerName, currency:ownerName==='Hirotaka'?'JPY':'SGD' };
+  return { date:localDateStr(), payee:'', amount:'', cat:'食費', owner:ownerName, currency:ownerName==='Hirotaka'?'JPY':'SGD' };
 }
 
 // ===== EXIF方向読み取り =====
@@ -1187,7 +1209,7 @@ async function preprocessImage(file) {
 async function analyzeReceipt(file, apiKey) {
   const processed=await preprocessImage(file);
   const base64=await fileToBase64(processed);
-  const today=new Date().toISOString().split('T')[0];
+  const today=localDateStr();
   const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
     body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:600,temperature:0,
@@ -1496,6 +1518,11 @@ function renderList() {
   // 通常一覧（親はpending除外、子供はpending含む）
   const normal = isParentMode ? filtered.filter(e=>e.status!=='pending') : filtered;
   if(!normal.length&&!pendingHtml){list.innerHTML='<div class="empty">データがありません</div>';return;}
+
+  // 担当者で絞り込み中なら、通し番号を描画前に1回だけまとめて計算しておく
+  // （行ごとに毎回ソートし直すと件数が増えるたびに描画が重くなるため）
+  const seqMap = currentPersonFilter ? buildSequenceMap(currentPersonFilter) : null;
+
   list.innerHTML=pendingHtml+normal.map(e=>{
     const sym=e.currency==='SGD'?'$':'¥';
     const amt=e.currency==='SGD'?Number(e.amount).toFixed(2):Number(e.amount).toLocaleString('ja-JP');
@@ -1506,8 +1533,8 @@ function renderList() {
     const pendingBadge = !isParentMode && e.status === 'pending'
       ? `<span style="display:inline-block;background:#E07B3A;color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;margin-left:6px;vertical-align:middle;">承認待ち</span>`
       : '';
-    // 担当者を絞り込んでいる時だけ：古い順の通し番号
-    const seqNum = currentPersonFilter ? getPersonSequenceNumber(e) : null;
+    // 担当者を絞り込んでいる時だけ：古い順の通し番号（事前計算したMapから引くだけ）
+    const seqNum = seqMap ? (seqMap.get(e.id) ?? null) : null;
     const seqLabel = seqNum
       ? `<span style="font-family:'DM Mono',monospace;font-weight:700;color:var(--accent);">#${seqNum}</span> · `
       : '';
@@ -1518,7 +1545,7 @@ function renderList() {
     // 入金済みバッジ（子供のみ）
     const paidInfo=!isParentMode?getPaymentForEntry(e):null;
     const paidBadge=paidInfo
-      ?`<span style="display:inline-block;font-size:11px;color:#2E7D32;background:#E8F5E0;padding:2px 8px;border-radius:6px;margin-left:6px;vertical-align:middle;">✅ 入金済み · ${paidInfo.date}</span>`
+      ?`<span style="display:inline-block;font-size:11px;color:#2E7D32;background:#E8F5E0;padding:2px 8px;border-radius:6px;margin-left:6px;vertical-align:middle;">✅ 入金済み · ${escHtml(paidInfo.date)}</span>`
       :'';
     // 右カラム：写真サムネイル（タップで拡大）＋ 金額
     const photoThumb = e.imageData
@@ -1560,7 +1587,7 @@ function getUnpaidTotal(owner,cur) {
   return entries.filter(e=>e.owner===owner&&e.currency===cur&&(!last||e.date>last)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
 }
 function getThisMonthTotal(owner,cur) {
-  const ym=new Date().toISOString().substring(0,7);
+  const ym=localMonthStr();
   return entries.filter(e=>e.owner===owner&&e.currency===cur&&e.date?.startsWith(ym)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
 }
 
@@ -1570,8 +1597,8 @@ async function markAsPaid(owner,cur) {
   if(amount===0){alert('精算する金額がありません');return;}
   const fmt=cur==='SGD'?`$${amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:`¥${amount.toLocaleString('ja-JP')}`;
   if(!confirm(`${owner} の ${fmt} を入金済みにしますか？`)) return;
-  const ym=new Date().toISOString().substring(0,7);
-  const today=new Date().toISOString().split('T')[0];
+  const ym=localMonthStr();
+  const today=localDateStr();
   // 支払い記録
   await db.collection('payments').add({owner,date:today,amount,currency:cur,...(cur==='JPY'?{month:ym}:{})});
   // 子供へのポップアップ通知
