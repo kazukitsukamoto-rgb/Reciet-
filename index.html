@@ -223,6 +223,11 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .owner-btn { width: 100%; padding: 15px; margin-bottom: 10px; background: var(--surface); color: var(--text); border: 2px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 52px; }
 .owner-btn:active { background: var(--surface2); }
 .cancel-btn { width: 100%; padding: 12px; background: transparent; color: var(--text2); border: none; font-size: 13px; cursor: pointer; margin-top: 4px; }
+
+/* ===== 新バージョン通知バナー（ホーム画面アプリでも更新に気づけるように） ===== */
+#update-banner { position: fixed; left: 16px; right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); background: var(--accent); color: white; padding: 13px 16px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; gap: 12px; z-index: 3000; box-shadow: 0 8px 28px rgba(0,0,0,0.35); font-family: 'Noto Sans JP', sans-serif; font-size: 13px; font-weight: 700; animation: updateSlideUp 0.25s ease; }
+#update-banner button { background: white; color: var(--accent); border: none; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit; white-space: nowrap; min-height: 38px; }
+@keyframes updateSlideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 </style>
 </head>
 <body>
@@ -498,6 +503,42 @@ db.enablePersistence({ synchronizeTabs: true }).catch(err => {
   if (err.code !== 'failed-precondition' && err.code !== 'unimplemented')
     console.warn('Persistence error:', err);
 });
+
+// ===== 新バージョン検知（ホーム画面に追加した「アプリ」でも更新に気づけるように） =====
+// サービスワーカーは使っていないが、ホーム画面アプリは古いHTMLをキャッシュし続けることがあるため、
+// アプリを開く・前面に戻るたびにサーバー上の最新HTMLを取得して、内容が変わっていたら通知する。
+let __appSnapshot = null;
+function __selfUrl() {
+  return location.href.split('#')[0].split('?')[0] + '?_v=' + Date.now();
+}
+async function captureAppSnapshot() {
+  try {
+    const res = await fetch(__selfUrl(), { cache: 'no-store' });
+    if (res.ok) __appSnapshot = await res.text();
+  } catch (e) { /* オフライン時などは無視 */ }
+}
+async function checkForAppUpdate() {
+  if (!__appSnapshot || document.getElementById('update-banner')) return;
+  try {
+    const res = await fetch(__selfUrl(), { cache: 'no-store' });
+    if (res.ok) {
+      const latest = await res.text();
+      if (latest && latest !== __appSnapshot) showUpdateBanner();
+    }
+  } catch (e) { /* オフライン時などは無視 */ }
+}
+function showUpdateBanner() {
+  if (document.getElementById('update-banner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'update-banner';
+  bar.innerHTML = `<span>新しいバージョンがあります</span><button onclick="location.reload()">更新する</button>`;
+  document.body.appendChild(bar);
+}
+captureAppSnapshot();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkForAppUpdate();
+});
+window.addEventListener('focus', checkForAppUpdate);
 
 // ===== ユーザー設定（認証後にFirestoreから読み込む） =====
 let USER_MAP = {};
