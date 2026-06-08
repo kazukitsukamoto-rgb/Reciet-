@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-5';
+const APP_BUILD = '2026-06-09-6';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -658,9 +658,23 @@ function hideSplash() {
   splash.style.opacity = '0';
   setTimeout(() => splash.remove(), 200);
 }
-// 最大4秒で強制終了（何らかの理由でログイン判定が終わらない場合の保険。
-// 短すぎると、判定中に白い画面が見えてしまうため少し長めに設定）
-setTimeout(hideSplash, 4000);
+// 保険：読み込みが長引いた時の対応。
+// 以前は「一定時間経ったら強制的にスプラッシュを消す」処理だったが、
+// 肝心の読み込み（ログイン判定）が終わっていない状態で消すと、
+// 後ろの画面の準備がまだで真っ白な背景が一瞬見えてしまっていた。
+// → スプラッシュは無理に消さず、緑の背景はそのままに案内文と
+//   再読み込みボタンを表示する（読み込みは裏で続行中。終われば自動で正しい画面に切り替わる）
+setTimeout(() => {
+  if (splashHidden || document.getElementById('splash-slow-msg')) return;
+  const splash = document.getElementById('splash-screen');
+  if (!splash) return;
+  const msg = document.createElement('div');
+  msg.id = 'splash-slow-msg';
+  msg.style.cssText = 'margin-top:26px; text-align:center; color:rgba(255,255,255,0.7); font-size:12px; line-height:1.8; font-family:"Noto Sans JP",sans-serif;';
+  msg.innerHTML = '読み込みに時間がかかっています…<br>電波の良い場所でそのままお待ちください<br>'
+    + '<button onclick="location.reload()" style="margin-top:10px; background:rgba(255,255,255,0.18); color:white; border:none; padding:9px 20px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit;">再読み込み</button>';
+  splash.appendChild(msg);
+}, 6000);
 
 // ===== 認証状態の監視 =====
 auth.onAuthStateChanged(async user => {
