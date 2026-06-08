@@ -34,6 +34,19 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 #splash-screen .splash-sub {
   color: rgba(255,255,255,0.55); font-size: 13px; margin-top: 6px; font-family: 'DM Mono', monospace;
 }
+#splash-screen .splash-progress {
+  width: 150px; height: 5px; background: rgba(255,255,255,0.16); border-radius: 999px;
+  overflow: hidden; margin-top: 30px;
+}
+#splash-screen .splash-progress-bar {
+  height: 100%; width: 0%; border-radius: 999px;
+  background: linear-gradient(90deg, #66B82E, #C7E8A8);
+  transition: width 0.4s ease;
+}
+#splash-screen .splash-progress-pct {
+  color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 9px;
+  font-family: 'DM Mono', monospace; letter-spacing: 0.06em;
+}
 
 /* ===== ログイン画面 ===== */
 #login-screen {
@@ -245,6 +258,8 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
   </svg>
   <div class="splash-title">Reciet</div>
   <div class="splash-sub">My Expense Tracker</div>
+  <div class="splash-progress"><div class="splash-progress-bar" id="splash-progress-bar"></div></div>
+  <div class="splash-progress-pct" id="splash-progress-pct">0%</div>
 </div>
 
 <!-- ===== ログイン画面 ===== -->
@@ -514,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-4';
+const APP_BUILD = '2026-06-09-5';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -617,10 +632,25 @@ function signOutUser() {
   }
 }
 
+// ===== スプラッシュの進捗ゲージ（あとどれくらいで開くか分かるように） =====
+// 実際の読み込み段階（Firebase初期化→ログイン状態確認→ユーザー情報取得→画面切替）
+// に合わせてパーセントを進める。完全な実測ではないが、おおよその目安として表示する。
+let __splashPct = 0;
+function setSplashProgress(pct) {
+  if (splashHidden || pct <= __splashPct) return;
+  __splashPct = pct;
+  const bar = document.getElementById('splash-progress-bar');
+  const txt = document.getElementById('splash-progress-pct');
+  if (bar) bar.style.width = pct + '%';
+  if (txt) txt.textContent = pct + '%';
+}
+setSplashProgress(8); // スクリプト読み込み開始
+
 // ===== スプラッシュを消す =====
 let splashHidden = false;
 function hideSplash() {
   if (splashHidden) return;
+  setSplashProgress(100);
   splashHidden = true;
   const splash = document.getElementById('splash-screen');
   if (!splash) return;
@@ -637,12 +667,14 @@ auth.onAuthStateChanged(async user => {
   // 重要：ここでスプラッシュを消すと「次の画面の準備ができる前」に消えてしまい、
   // スプラッシュ→白紙→本画面、という一瞬の白い画面が挟まる。
   // なので、切り替え先の画面の表示準備が整った直後（各分岐の最後）で消す。
+  setSplashProgress(45); // ログイン状態の確認が完了
   if (user) {
     // 認証後にユーザーマップを読み込む（セキュリティルール対応）
     try {
       const doc = await db.collection('config').doc('allowedUsers').get();
       if (doc.exists) USER_MAP = doc.data();
     } catch(e) { console.warn('allowedUsers load error:', e); }
+    setSplashProgress(80); // ユーザー情報の取得が完了
 
     const info = USER_MAP[user.email];
     if (!info) {
@@ -677,6 +709,7 @@ auth.onAuthStateChanged(async user => {
     // GroqキーをFirestoreから自動読み込み
     loadGroqKey();
   } else {
+    setSplashProgress(80);
     document.getElementById('main-app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
     hideSplash();
