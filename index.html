@@ -201,7 +201,7 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 
 /* ===== 写真フルスクリーン ===== */
 #photo-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.94); z-index: 2000; display: none; align-items: center; justify-content: center; padding: 16px; }
-#photo-overlay img { max-width: 100%; max-height: 88vh; border-radius: 12px; object-fit: contain; display: block; }
+#photo-overlay img { max-width: 100%; max-height: 88vh; border-radius: 12px; object-fit: contain; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
 #photo-overlay-close { position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.18); border: none; color: white; font-size: 22px; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 
 /* ===== 承認待ちセクション ===== */
@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-9';
+const APP_BUILD = '2026-06-09-10';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1446,10 +1446,81 @@ async function saveEdit() {
   btn.disabled = false; btn.textContent = '保存する';
 }
 
-// ===== 写真フルスクリーン =====
+// ===== 写真フルスクリーン：ピンチズーム & パン =====
+// 2本指で広げる→拡大、1本指でドラッグ→パン（拡大中のみ）、ダブルタップ→リセット
+let __pzScale = 1, __pzDx = 0, __pzDy = 0;
+let __pzInitDist = 0, __pzInitScale = 1, __pzInitDx = 0, __pzInitDy = 0;
+let __pzInitMidX = 0, __pzInitMidY = 0, __pzOvW = 0, __pzOvH = 0;
+let __pzPanStartX = 0, __pzPanStartY = 0, __pzPanInitDx = 0, __pzPanInitDy = 0;
+let __pzLastTap = 0;
+
+function __pzApply() {
+  const img = document.getElementById('photo-overlay-img');
+  if (img) img.style.transform = `translate(${__pzDx}px,${__pzDy}px) scale(${__pzScale})`;
+}
+function __pzReset() {
+  __pzScale = 1; __pzDx = 0; __pzDy = 0; __pzApply();
+}
+function __pzFingerDist(t) {
+  const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+(function attachPinchZoom() {
+  const img = document.getElementById('photo-overlay-img');
+  if (!img) return;
+
+  img.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const ov = document.getElementById('photo-overlay');
+      __pzOvW = ov.offsetWidth; __pzOvH = ov.offsetHeight;
+      __pzInitDist  = __pzFingerDist(e.touches);
+      __pzInitMidX  = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      __pzInitMidY  = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      __pzInitScale = __pzScale; __pzInitDx = __pzDx; __pzInitDy = __pzDy;
+    } else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - __pzLastTap < 280) { e.preventDefault(); __pzReset(); }
+      __pzLastTap = now;
+      __pzPanStartX = e.touches[0].clientX; __pzPanStartY = e.touches[0].clientY;
+      __pzPanInitDx = __pzDx; __pzPanInitDy = __pzDy;
+    }
+  }, { passive: false });
+
+  img.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const ratio    = __pzFingerDist(e.touches) / __pzInitDist;
+      const newScale = Math.min(Math.max(__pzInitScale * ratio, 0.5), 6);
+      const curMidX  = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const curMidY  = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      // ピンチ開始時の中点の下にある画像内の点（画像中心を原点）を計算し、
+      // その点が現在の指の中点の下に来るよう平行移動量を決める
+      const imgX = (__pzInitMidX - __pzOvW / 2 - __pzInitDx) / __pzInitScale;
+      const imgY = (__pzInitMidY - __pzOvH / 2 - __pzInitDy) / __pzInitScale;
+      __pzScale = newScale;
+      __pzDx = curMidX - __pzOvW / 2 - imgX * newScale;
+      __pzDy = curMidY - __pzOvH / 2 - imgY * newScale;
+      __pzApply();
+    } else if (e.touches.length === 1 && __pzScale > 1) {
+      e.preventDefault();
+      __pzDx = __pzPanInitDx + e.touches[0].clientX - __pzPanStartX;
+      __pzDy = __pzPanInitDy + e.touches[0].clientY - __pzPanStartY;
+      __pzApply();
+    }
+  }, { passive: false });
+
+  img.addEventListener('touchend', () => {
+    // 縮小しすぎたらリセット
+    if (__pzScale < 1) __pzReset();
+  });
+})();
+
 function openPhoto(entryId) {
   const entry = entries.find(e => e.id === entryId);
   if (!entry?.imageData) return;
+  __pzReset();
   document.getElementById('photo-overlay-img').src = entry.imageData;
   document.getElementById('photo-overlay').style.display = 'flex';
   document.body.style.overflow = 'hidden';
@@ -1458,6 +1529,7 @@ function closePhoto() {
   document.getElementById('photo-overlay').style.display = 'none';
   document.getElementById('photo-overlay-img').src = '';
   document.body.style.overflow = '';
+  __pzReset();
 }
 
 // ===== 承認・却下（親のみ） =====
