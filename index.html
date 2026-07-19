@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-11';
+const APP_BUILD = '2026-06-09-12';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1206,13 +1206,18 @@ async function preprocessImage(file) {
 }
 
 // ===== Groq AI =====
+// 画像の前処理（重い）は1回だけ行い、レートリミット時はその結果を使って自動リトライする
 async function analyzeReceipt(file, apiKey) {
-  const processed=await preprocessImage(file);
-  const base64=await fileToBase64(processed);
-  const today=localDateStr();
-  const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+  const processed = await preprocessImage(file);
+  const base64    = await fileToBase64(processed);
+  const today     = localDateStr();
+  return __groqFetch(base64, today, apiKey, 0);
+}
+
+async function __groqFetch(base64, today, apiKey, attempt) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-    body:JSON.stringify({model:'qwen/qwen3.6-27b',max_tokens:800,temperature:0,
+    body:JSON.stringify({model:'qwen/qwen3.6-27b', max_tokens:400, temperature:0,
       messages:[
         {role:'system',content:'あなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
         {role:'user',content:[
@@ -1241,17 +1246,35 @@ async function analyzeReceipt(file, apiKey) {
         ]}
       ]})
   });
-  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error?.message||`HTTP ${res.status}`);}
-  const data=await res.json();
-  const text=data.choices?.[0]?.message?.content||'';
-  // ステップ1の思考テキストの後にあるJSONを探す（Chain-of-Thought対応）
-  let p=null;
-  const re=/\{[\s\S]*?\}/g; let m;
-  while((m=re.exec(text))!==null){
-    try{const parsed=JSON.parse(m[0]); if(parsed.amount!==undefined&&parsed.payee!==undefined){p=parsed;break;}}catch(e){}
+
+  if (!res.ok) {
+    const e = await res.json().catch(()=>({}));
+    const msg = e.error?.message || `HTTP ${res.status}`;
+    // レートリミット(429)の場合：エラーメッセージから待機秒数を取り出して自動リトライ
+    if (res.status === 429 && attempt < 2) {
+      const wm   = msg.match(/try again in ([0-9.]+)s/i);
+      const wait = wm ? Math.ceil(parseFloat(wm[1])) + 1 : 12;
+      const rows = document.getElementById('ai-rows');
+      if (rows) rows.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text2);font-size:13px;">
+        ⏳ 少し混み合っています<br>
+        <span style="font-size:11px;color:var(--text3);">${wait}秒後に自動で再試行します…</span>
+      </div>`;
+      await new Promise(r => setTimeout(r, wait * 1000));
+      return __groqFetch(base64, today, apiKey, attempt + 1);
+    }
+    throw new Error(msg);
   }
-  if(!p) throw new Error('JSONを取得できませんでした');
-  return {date:p.date||today,payee:String(p.payee||''),amount:Number(String(p.amount).replace(/,/g,''))||0,cat:p.category||'食費',currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'),amountConfident:p.amount_confident!==false};
+
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  // 思考テキスト（<think>...</think>など）の後にあるJSONを探す
+  let p = null;
+  const re = /\{[\s\S]*?\}/g; let m;
+  while ((m = re.exec(text)) !== null) {
+    try { const parsed = JSON.parse(m[0]); if (parsed.amount !== undefined && parsed.payee !== undefined) { p = parsed; break; } } catch(e) {}
+  }
+  if (!p) throw new Error('JSONを取得できませんでした');
+  return {date:p.date||today, payee:String(p.payee||''), amount:Number(String(p.amount).replace(/,/g,''))||0, cat:p.category||'食費', currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'), amountConfident:p.amount_confident!==false};
 }
 function fileToBase64(file) {
   return new Promise((resolve,reject)=>{
