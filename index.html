@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-06-09-13';
+const APP_BUILD = '2026-07-19-01';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -573,7 +573,9 @@ function scheduleAutoReload() {
   if (__reloadingForUpdate) return;
   __reloadingForUpdate = true;
   const tryNow = () => {
-    if (__safeToAutoReload()) location.reload();
+    // location.reload() may serve cached HTML on iOS home-screen apps;
+    // navigating to a fresh cache-busted URL guarantees a real network fetch.
+    if (__safeToAutoReload()) location.href = __selfUrl();
     else setTimeout(tryNow, 1500);
   };
   tryNow();
