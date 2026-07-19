@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-07-19-06';
+const APP_BUILD = '2026-07-19-07';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1219,13 +1219,12 @@ async function analyzeReceipt(file, apiKey) {
 async function __groqFetch(base64, today, apiKey, attempt) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-    body:JSON.stringify({model:'qwen/qwen3.6-27b', max_tokens:3000, temperature:0,
+    body:JSON.stringify({model:'meta-llama/llama-4-maverick-17b-128e-instruct', max_tokens:600, temperature:0,
       messages:[
         {role:'system',content:'あなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
         {role:'user',content:[
           {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
-          {type:'text',text:`/no_think
-以下の問題があっても最善を尽くして読み取ること：手ブレ・ピンボケ・影・光の反射・薄い印字・シワ・手書き文字・背景の混入・特殊フォント・複雑なレイアウト。背景や別の紙が映り込んでいてもレシート部分だけを読むこと。
+          {type:'text',text:`以下の問題があっても最善を尽くして読み取ること：手ブレ・ピンボケ・影・光の反射・薄い印字・シワ・手書き文字・背景の混入・特殊フォント・複雑なレイアウト。背景や別の紙が映り込んでいてもレシート部分だけを読むこと。
 
 【ステップ1】以下の優先順位で合計金額を特定:
 1. 「合計」「お買上合計」「税込合計」「TOTAL」「請求金額」のラベルがある行 → 使用する
