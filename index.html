@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-07-19-01';
+const APP_BUILD = '2026-07-19-02';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1219,9 +1219,9 @@ async function analyzeReceipt(file, apiKey) {
 async function __groqFetch(base64, today, apiKey, attempt) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-    body:JSON.stringify({model:'qwen/qwen3.6-27b', max_tokens:600, temperature:0,
+    body:JSON.stringify({model:'qwen/qwen3.6-27b', max_tokens:800, temperature:0,
       messages:[
-        {role:'system',content:'あなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
+        {role:'system',content:'/no_think\nあなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
         {role:'user',content:[
           {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
           {type:'text',text:`以下の問題があっても最善を尽くして読み取ること：手ブレ・ピンボケ・影・光の反射・薄い印字・シワ・手書き文字・背景の混入・特殊フォント・複雑なレイアウト。背景や別の紙が映り込んでいてもレシート部分だけを読むこと。
@@ -1271,8 +1271,11 @@ async function __groqFetch(base64, today, apiKey, attempt) {
   const raw  = data.choices?.[0]?.message?.content || '';
 
   // qwen3は回答前に<think>...</think>の思考ブロックを出力することがある。
-  // この中に{}が含まれると誤ってJSONと判定されるため、先に除去する。
-  const text = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  // max_tokensに達して閉じタグなしで打ち切られることもあるため、両パターンを除去する。
+  const text = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*/i, '')
+    .trim();
 
   let p = null;
 
