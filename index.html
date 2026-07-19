@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-07-19-04';
+const APP_BUILD = '2026-07-19-05';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1294,7 +1294,7 @@ async function __groqFetch(base64, today, apiKey, attempt) {
     }
   }
 
-  // ③ 最終手段：ネストありの非貪欲マッチ
+  // ③ ネストありの非貪欲マッチ
   if (!p) {
     const re2 = /\{[\s\S]*?\}/g; let m;
     while ((m = re2.exec(text)) !== null) {
@@ -1302,7 +1302,21 @@ async function __groqFetch(base64, today, apiKey, attempt) {
     }
   }
 
-  if (!p) throw new Error('JSONを取得できませんでした（応答: ' + text.slice(0,120) + '）');
+  // ④ /no_think が効かず思考ブロック内にJSONが埋まっている場合: rawから直接検索
+  if (!p) {
+    const re3 = /\{[^{}]*\}/g; let m;
+    while ((m = re3.exec(raw)) !== null) {
+      try { const t = JSON.parse(m[0]); if (t.amount !== undefined && t.payee !== undefined) { p = t; break; } } catch(e) {}
+    }
+  }
+  if (!p) {
+    const re4 = /\{[\s\S]*?\}/g; let m;
+    while ((m = re4.exec(raw)) !== null) {
+      try { const t = JSON.parse(m[0]); if (t.amount !== undefined && t.payee !== undefined) { p = t; break; } } catch(e) {}
+    }
+  }
+
+  if (!p) throw new Error('JSONを取得できませんでした（応答: ' + (text || raw).slice(0,120) + '）');
   return {date:p.date||today, payee:String(p.payee||''), amount:Number(String(p.amount).replace(/,/g,''))||0, cat:p.category||'食費', currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'), amountConfident:p.amount_confident!==false};
 }
 function fileToBase64(file) {
