@@ -544,7 +544,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-08-09-04';
+const APP_BUILD = '2026-08-09-05';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1037,6 +1037,7 @@ function saveGeminiKey() {
   if (!key) { showMessage('APIキーを入力してください','#e74c3c'); return; }
   geminiApiKey = key;
   __geminiModels = null; // キーが変わると使えるモデルも変わる
+  localStorage.removeItem('gemini_models');
   localStorage.setItem('gemini_api_key', key);
   document.getElementById('gemini-key-input').value = '';
   document.getElementById('api-settings-body').style.display = 'none';
@@ -1047,6 +1048,7 @@ function clearGeminiKey() {
   if (!confirm('Geminiキーを削除しますか？')) return;
   geminiApiKey = null;
   __geminiModels = null;
+  localStorage.removeItem('gemini_models');
   localStorage.removeItem('gemini_api_key');
   setApiKeyStatus();
   document.getElementById('api-settings-body').style.display = 'block';
@@ -1114,16 +1116,24 @@ async function selectOwner(ownerName) {
   card.style.display = 'block';
   confirmBtn.disabled = true;
   const hasKey = geminiApiKey || groqApiKey;
-  setAiStatus(`${geminiApiKey?'Gemini':'Groq'} AI が解析中...`);
 
   let errorMsg = null;
   pendingImageData = null;
+  let aiBase64 = null;
 
-  if (imageFile) pendingImageData = await compressForStorage(imageFile);
-
-  if (hasKey && imageFile) {
+  if (imageFile) {
+    setAiStatus('写真を準備中...');
     try {
-      const result = await analyzeReceipt(imageFile);
+      const built = await buildImagesForEntry(imageFile);
+      pendingImageData = built.storageDataUrl;
+      aiBase64         = built.aiBase64;
+    } catch(err) { errorMsg = '写真を読み込めませんでした'; }
+  }
+
+  if (hasKey && aiBase64) {
+    setAiStatus(`${geminiApiKey?'Gemini':'Groq'} AI が解析中...`);
+    try {
+      const result = await analyzeReceipt(aiBase64);
       aiData = { ...result, owner: ownerName };
     } catch(err) {
       aiData = defaultAiData(ownerName);
@@ -1192,77 +1202,97 @@ function applyExifRotation(ctx, img, ori, dw, dh) {
   ctx.restore();
 }
 
-// ===== 画像圧縮 =====
-async function compressForStorage(file) {
+// ===== 画像処理 =====
+// AIに送る画像の最大辺。大きいほどアップロードに時間がかかり、Geminiも
+// 画像を分割して読む枚数が増えて遅くなる。レシートの文字は1500pxあれば十分読める。
+const AI_IMAGE_MAX = 1500;
+const AI_IMAGE_QUALITY = 0.85;
+
+// 写真のデコードは重いので1回だけ行い、保存用とAI用の両方をここから作る。
+// （以前は同じ写真を2回デコード＆リサイズしていて、その分だけ待ち時間が長かった）
+async function decodeImage(file) {
   const ori = await getExifOrientation(file);
-  return new Promise(resolve => {
-    const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const iw = img.naturalWidth, ih = img.naturalHeight;
-      const needSwap = ori === 6 || ori === 8;
-      let eff;
-      if (needSwap && iw <= ih) eff = 1;       // ブラウザが既にEXIF補正済み
-      else if (ori === 1 && iw > ih * 1.2) eff = 6; // EXIFなし+横長→90°CW自動補正（レシートは必ず縦長）
-      else eff = ori;
-      const sw = eff === 6 || eff === 8;
-      const MAX = 800, rawW = sw ? ih : iw, rawH = sw ? iw : ih;
-      const s = Math.min(MAX / rawW, MAX / rawH, 1);
-      const dw = Math.round(rawW * s), dh = Math.round(rawH * s);
-      const cv = document.createElement('canvas'); cv.width = dw; cv.height = dh;
-      applyExifRotation(cv.getContext('2d'), img, eff, dw, dh);
-      cv.toBlob(blob => { const r = new FileReader(); r.onload = e => resolve(e.target.result); r.readAsDataURL(blob); }, 'image/jpeg', 0.45);
-    };
-    img.onerror = () => resolve(null); img.src = url;
-  });
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload  = () => resolve(im);
+      im.onerror = () => reject(new Error('画像を読み込めませんでした'));
+      im.src = url;
+    });
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const needSwap = ori === 6 || ori === 8;
+    let eff;
+    if (needSwap && iw <= ih) eff = 1;             // ブラウザが既にEXIF補正済み
+    else if (ori === 1 && iw > ih * 1.2) eff = 6;  // EXIFなし+横長→90°CW自動補正（レシートは必ず縦長）
+    else eff = ori;
+    return { img, eff };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
-async function preprocessImage(file) {
-  const ori = await getExifOrientation(file);
-  return new Promise(resolve => {
-    const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const iw = img.naturalWidth, ih = img.naturalHeight;
-      const needSwap = ori === 6 || ori === 8;
-      let eff;
-      if (needSwap && iw <= ih) eff = 1;       // ブラウザが既にEXIF補正済み
-      else if (ori === 1 && iw > ih * 1.2) eff = 6; // EXIFなし+横長→90°CW自動補正（レシートは必ず縦長）
-      else eff = ori;
-      const sw = eff === 6 || eff === 8;
-      const MAX = 2000, rawW = sw ? ih : iw, rawH = sw ? iw : ih;
-      const s = Math.min(MAX / rawW, MAX / rawH, 1);
-      const dw = Math.round(rawW * s), dh = Math.round(rawH * s);
-      const cv = document.createElement('canvas'); cv.width = dw; cv.height = dh;
-      const ctx = cv.getContext('2d');
-      applyExifRotation(ctx, img, eff, dw, dh);
-      const id = ctx.getImageData(0, 0, dw, dh), d = id.data;
-      // ガンマ補正（γ=0.7）: 影・薄い印字・暗部を明るく底上げ
-      const gLUT = Uint8Array.from({length:256}, (_,i) => Math.round(255*Math.pow(i/255, 0.7)));
-      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = gLUT[d[i+c]];
-      // シャープニングフィルター（ブレ・ピンボケ・シワのエッジを鮮明化）
-      const orig = new Uint8ClampedArray(d);
-      for (let y = 1; y < dh-1; y++) for (let x = 1; x < dw-1; x++) {
-        const i = (y*dw+x)*4;
-        for (let c = 0; c < 3; c++)
-          d[i+c] = Math.min(255, Math.max(0,
-            5*orig[i+c] - orig[((y-1)*dw+x)*4+c] - orig[((y+1)*dw+x)*4+c]
-            - orig[(y*dw+x-1)*4+c] - orig[(y*dw+x+1)*4+c]));
+
+// 指定した最大辺に収まるよう縮小して描画したcanvasを返す
+function drawScaled(img, eff, max) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const swap = eff === 6 || eff === 8;
+  const rawW = swap ? ih : iw, rawH = swap ? iw : ih;
+  const s  = Math.min(max / rawW, max / rawH, 1);
+  const dw = Math.round(rawW * s), dh = Math.round(rawH * s);
+  const cv = document.createElement('canvas'); cv.width = dw; cv.height = dh;
+  const ctx = cv.getContext('2d');
+  applyExifRotation(ctx, img, eff, dw, dh);
+  return { cv, ctx, dw, dh };
+}
+
+// 読み取りやすさを上げる補正（影・薄い印字・ブレ・低コントラスト対策）
+function enhanceForOcr(ctx, dw, dh) {
+  const id = ctx.getImageData(0, 0, dw, dh), d = id.data;
+  // ガンマ補正（γ=0.7）: 影・薄い印字・暗部を明るく底上げ
+  const gLUT = Uint8Array.from({length:256}, (_,i) => Math.round(255*Math.pow(i/255, 0.7)));
+  for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = gLUT[d[i+c]];
+  // シャープニングフィルター（ブレ・ピンボケ・シワのエッジを鮮明化）
+  const orig = new Uint8ClampedArray(d);
+  const row = dw * 4;
+  for (let y = 1; y < dh-1; y++) {
+    let i = (y*dw + 1) * 4;
+    for (let x = 1; x < dw-1; x++, i += 4) {
+      for (let c = 0; c < 3; c++) {
+        const j = i + c;
+        d[j] = 5*orig[j] - orig[j-row] - orig[j+row] - orig[j-4] - orig[j+4];
       }
-      // コントラスト強調（光の反射・低コントラストを補正）
-      for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = Math.min(255, Math.max(0, (d[i+c]-128)*1.6+128));
-      ctx.putImageData(id, 0, 0);
-      cv.toBlob(resolve, 'image/jpeg', 0.92);
-    };
-    img.onerror = () => resolve(file); img.src = url;
-  });
+    }
+  }
+  // コントラスト強調（光の反射・低コントラストを補正）
+  for (let i = 0; i < d.length; i += 4) for (let c = 0; c < 3; c++) d[i+c] = (d[i+c]-128)*1.6+128;
+  ctx.putImageData(id, 0, 0);
+}
+
+function canvasToJpegDataUrl(cv, quality) {
+  return new Promise(resolve => cv.toBlob(blob => {
+    if (!blob) { resolve(null); return; }
+    const r = new FileReader(); r.onload = e => resolve(e.target.result); r.readAsDataURL(blob);
+  }, 'image/jpeg', quality));
+}
+function canvasToJpegBase64(cv, quality) {
+  return canvasToJpegDataUrl(cv, quality).then(url => url ? url.split(',')[1] : null);
+}
+
+// 保存用（軽い）とAI解析用（補正あり）を1回のデコードでまとめて作る
+async function buildImagesForEntry(file) {
+  const { img, eff } = await decodeImage(file);
+  const store = drawScaled(img, eff, 800);
+  const storageDataUrl = await canvasToJpegDataUrl(store.cv, 0.45);
+  const ai = drawScaled(img, eff, AI_IMAGE_MAX);
+  enhanceForOcr(ai.ctx, ai.dw, ai.dh);
+  const aiBase64 = await canvasToJpegBase64(ai.cv, AI_IMAGE_QUALITY);
+  return { storageDataUrl, aiBase64 };
 }
 
 // ===== AI解析（Geminiキーがあれば優先、なければGroq） =====
 // 画像の前処理（重い）は1回だけ行い、レートリミット時はその結果を使って自動リトライする
-async function analyzeReceipt(file) {
-  const processed = await preprocessImage(file);
-  const base64    = await fileToBase64(processed);
-  const today     = localDateStr();
+async function analyzeReceipt(base64) {
+  const today = localDateStr();
   if (geminiApiKey) {
     try {
       return await __geminiFetch(base64, today, geminiApiKey);
@@ -1321,6 +1351,11 @@ function buildReceiptPrompt(today) {
 let __geminiModels = null;
 async function listGeminiModels(apiKey) {
   if (__geminiModels) return __geminiModels;
+  // 端末に覚えておき、2回目以降は問い合わせを省いて解析を早く始める
+  try {
+    const cached = JSON.parse(localStorage.getItem('gemini_models') || 'null');
+    if (Array.isArray(cached) && cached.length) { __geminiModels = cached; return cached; }
+  } catch(e) {}
   // 軽くて速い順の希望リスト（一覧に含まれていればこの順で優先する）
   const prefer = ['gemini-2.5-flash','gemini-2.0-flash','gemini-2.5-flash-lite','gemini-flash-latest'];
   let names = [];
@@ -1342,6 +1377,7 @@ async function listGeminiModels(apiKey) {
     ...names.filter(n => !prefer.includes(n))
   ];
   __geminiModels = (ordered.length ? ordered : prefer).slice(0, 4);
+  try { localStorage.setItem('gemini_models', JSON.stringify(__geminiModels)); } catch(e) {}
   return __geminiModels;
 }
 
@@ -1357,6 +1393,9 @@ async function __geminiFetch(base64, today, apiKey) {
       // それ以外（このモデルは無料枠0・存在しない等）は次のモデルを試す
     }
   }
+  // 覚えていたモデルが全滅 → 情報が古い可能性があるので次回は取り直す
+  __geminiModels = null;
+  try { localStorage.removeItem('gemini_models'); } catch(e) {}
   throw lastErr || new Error('Geminiで解析できませんでした');
 }
 
@@ -1474,11 +1513,6 @@ function normalizeReceipt(p, today) {
     currency: ['SGD','JPY'].includes(p.currency) ? p.currency : 'SGD',
     amountConfident: p.amount_confident !== false
   };
-}
-function fileToBase64(file) {
-  return new Promise((resolve,reject)=>{
-    const r=new FileReader(); r.onload=()=>resolve(r.result.split(',')[1]); r.onerror=reject; r.readAsDataURL(file);
-  });
 }
 function escHtml(str) {
   return String(str??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
