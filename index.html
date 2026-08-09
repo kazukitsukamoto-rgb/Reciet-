@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-08-09-01';
+const APP_BUILD = '2026-08-09-02';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -838,6 +838,23 @@ function updateHeaderTotal() {
   el.style.display = 'block';
 }
 
+// Firestoreのタイムスタンプ（または未設定）をミリ秒に変換
+function tsMs(v) {
+  if (!v) return 0;
+  if (v.toMillis) return v.toMillis();
+  if (v.seconds)  return v.seconds * 1000;
+  return 0;
+}
+// レシートが「その精算より後に登録された」か（＝その精算には含まれていない）。
+// 精算は実行時点で存在したレシートだけを対象にしているため、あとから
+// 古い日付のレシートを登録した場合、日付だけで見ると誤って精算済み扱いになり
+// 金額が集計から消えてしまう。登録時刻でも判定してこれを防ぐ。
+// ※ createdAt を持たない過去の精算記録では判定できないため false（従来通り）
+function addedAfterPayment(entry, payment) {
+  const e = tsMs(entry?.createdAt), p = tsMs(payment?.createdAt);
+  return e > 0 && p > 0 && e > p;
+}
+
 // ===== レシートが入金済みかチェック =====
 function getPaymentForEntry(entry) {
   // Hirotakaは月単位で判定（monthフィールドを使用）
@@ -845,6 +862,7 @@ function getPaymentForEntry(entry) {
     const entryMonth = entry.date?.substring(0, 7);
     return payments.find(p =>
       p.owner === 'Hirotaka' && p.currency === 'JPY' && p.month === entryMonth
+      && !addedAfterPayment(entry, p)
     ) || null;
   }
   // Kazuki/Kenseiは日付ベースで判定
@@ -854,7 +872,7 @@ function getPaymentForEntry(entry) {
   for (let i = 0; i < ownerPayments.length; i++) {
     const p = ownerPayments[i];
     const prevDate = i > 0 ? ownerPayments[i-1].date : '0000-00-00';
-    if (entry.date > prevDate && entry.date <= p.date) return p;
+    if (entry.date > prevDate && entry.date <= p.date && !addedAfterPayment(entry, p)) return p;
   }
   return null;
 }
@@ -1713,33 +1731,42 @@ function renderList() {
 }
 
 // ===== 個人集計 =====
-function getLastPaymentDate(owner, currency='SGD') {
-  const list=payments.filter(p=>p.owner===owner&&p.currency===currency);
-  if(!list.length) return null;
-  return list.sort((a,b)=>b.date.localeCompare(a.date))[0].date;
-}
 function isApproved(e) {
   return e.status === 'approved' || !e.status; // status未設定の古いデータも含める
 }
 function getUnpaidTotal(owner,cur) {
-  const last=getLastPaymentDate(owner,cur);
-  return entries.filter(e=>e.owner===owner&&e.currency===cur&&(!last||e.date>last)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
+  // 「どの精算にも含まれていないレシート」を未精算として合計する。
+  // 一覧の「入金済み」バッジと同じ判定を使うので、表示と合計が食い違わない。
+  return entries
+    .filter(e=>e.owner===owner&&e.currency===cur&&isApproved(e)&&!getPaymentForEntry(e))
+    .reduce((s,e)=>s+Number(e.amount),0);
 }
 function getThisMonthTotal(owner,cur) {
   const ym=localMonthStr();
   return entries.filter(e=>e.owner===owner&&e.currency===cur&&e.date?.startsWith(ym)&&isApproved(e)).reduce((s,e)=>s+Number(e.amount),0);
 }
+// 今月すでに入金した合計（JPY・月単位精算のHirotaka用）
+function getThisMonthPaid(owner,cur) {
+  const ym=localMonthStr();
+  return payments.filter(p=>p.owner===owner&&p.currency===cur&&p.month===ym).reduce((s,p)=>s+Number(p.amount),0);
+}
 
 async function markAsPaid(owner,cur) {
   if(!isParentMode){alert('入金済み操作は親のみできます');return;}
-  const amount=cur==='JPY'?getThisMonthTotal(owner,cur):getUnpaidTotal(owner,cur);
-  if(amount===0){alert('精算する金額がありません');return;}
+  // JPY(Hirotaka)は月単位精算。すでに今月入金した分を引いた残額のみを記録する
+  const amount=cur==='JPY'
+    ? Math.max(0, getThisMonthTotal(owner,cur)-getThisMonthPaid(owner,cur))
+    : getUnpaidTotal(owner,cur);
+  if(amount<=0){alert('精算する金額がありません');return;}
   const fmt=cur==='SGD'?`$${amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:`¥${amount.toLocaleString('ja-JP')}`;
   if(!confirm(`${owner} の ${fmt} を入金済みにしますか？`)) return;
   const ym=localMonthStr();
   const today=localDateStr();
   // 支払い記録
-  await db.collection('payments').add({owner,date:today,amount,currency:cur,...(cur==='JPY'?{month:ym}:{})});
+  await db.collection('payments').add({
+    owner,date:today,amount,currency:cur,...(cur==='JPY'?{month:ym}:{}),
+    createdAt:firebase.firestore.FieldValue.serverTimestamp()
+  });
   // 子供へのポップアップ通知
   await db.collection('notifications').add({
     owner, amount, currency:cur, date:today, read:false,
@@ -1775,9 +1802,10 @@ function renderMonthly() {
   const ht=getThisMonthTotal('Hirotaka','JPY');
   document.getElementById('total-hirotaka').textContent=`¥${fmtJ(ht)}`;
   document.getElementById('hirotaka-badge').textContent=`${new Date().getMonth()+1}月`;
-  // 今月すでに精算済みならボタンを「精算済み」（無効）にして二重精算を防ぐ
-  const htPaidThisMonth=payments.some(p=>p.owner==='Hirotaka'&&p.month===localMonthStr());
-  setBtn('paidbtn-hirotaka','Hirotaka','JPY',htPaidThisMonth?0:ht); renderPaymentHistory('Hirotaka');
+  // 今月ぶんの残額（合計 − 入金済み）で判定。二重精算を防ぎつつ、
+  // 精算後にその月のレシートを追加した場合は差額だけ精算できる。
+  const htRemain=Math.max(0, ht-getThisMonthPaid('Hirotaka','JPY'));
+  setBtn('paidbtn-hirotaka','Hirotaka','JPY',htRemain); renderPaymentHistory('Hirotaka');
 }
 
 function updateMonthFilter() {
