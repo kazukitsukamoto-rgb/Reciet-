@@ -529,7 +529,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-07-19-08';
+const APP_BUILD = '2026-08-09-01';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1315,7 +1315,7 @@ async function __groqFetch(base64, today, apiKey, attempt) {
     }
   }
 
-  if (!p) throw new Error('JSONを取得できませんでした（応答: ' + (text || raw).slice(0,120) + '）');
+  if (!p) throw new Error('JSONを取得できませんでした');
   return {date:p.date||today, payee:String(p.payee||''), amount:Number(String(p.amount).replace(/,/g,''))||0, cat:p.category||'食費', currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'), amountConfident:p.amount_confident!==false};
 }
 function fileToBase64(file) {
@@ -1369,7 +1369,9 @@ async function confirmAI(forceAdd = false) {
 
   // 子供が金額を変更したか判定
   const originalAmount = aiData.amount;
-  const amountChanged = !isParentMode && Math.abs(amount - originalAmount) > 0.001;
+  // AI が読み取れず amount=0 の時に子供が入力しても「変更」と誤判定しないよう、
+  // originalAmount が正の値の時だけ変更チェックする
+  const amountChanged = !isParentMode && originalAmount > 0 && Math.abs(amount - originalAmount) > 0.001;
   const status = amountChanged ? 'pending' : 'approved';
 
   const btn=document.getElementById('confirm-btn');
@@ -1773,7 +1775,9 @@ function renderMonthly() {
   const ht=getThisMonthTotal('Hirotaka','JPY');
   document.getElementById('total-hirotaka').textContent=`¥${fmtJ(ht)}`;
   document.getElementById('hirotaka-badge').textContent=`${new Date().getMonth()+1}月`;
-  setBtn('paidbtn-hirotaka','Hirotaka','JPY',ht); renderPaymentHistory('Hirotaka');
+  // 今月すでに精算済みならボタンを「精算済み」（無効）にして二重精算を防ぐ
+  const htPaidThisMonth=payments.some(p=>p.owner==='Hirotaka'&&p.month===localMonthStr());
+  setBtn('paidbtn-hirotaka','Hirotaka','JPY',htPaidThisMonth?0:ht); renderPaymentHistory('Hirotaka');
 }
 
 function updateMonthFilter() {
