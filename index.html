@@ -544,7 +544,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-08-09-03';
+const APP_BUILD = '2026-08-09-04';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1036,6 +1036,7 @@ function saveGeminiKey() {
   const key = document.getElementById('gemini-key-input').value.trim();
   if (!key) { showMessage('APIキーを入力してください','#e74c3c'); return; }
   geminiApiKey = key;
+  __geminiModels = null; // キーが変わると使えるモデルも変わる
   localStorage.setItem('gemini_api_key', key);
   document.getElementById('gemini-key-input').value = '';
   document.getElementById('api-settings-body').style.display = 'none';
@@ -1045,6 +1046,7 @@ function saveGeminiKey() {
 function clearGeminiKey() {
   if (!confirm('Geminiキーを削除しますか？')) return;
   geminiApiKey = null;
+  __geminiModels = null;
   localStorage.removeItem('gemini_api_key');
   setApiKeyStatus();
   document.getElementById('api-settings-body').style.display = 'block';
@@ -1108,12 +1110,11 @@ function closeModal() {
 async function selectOwner(ownerName) {
   closeModal();
   const card = document.getElementById('ai-result');
-  const rows = document.getElementById('ai-rows');
   const confirmBtn = document.getElementById('confirm-btn');
   card.style.display = 'block';
   confirmBtn.disabled = true;
   const hasKey = geminiApiKey || groqApiKey;
-  rows.innerHTML = `<div style="text-align:center;padding:24px 0;"><div class="spinner" style="margin:0 auto 10px;"></div><div style="color:var(--text2);font-size:13px;">${geminiApiKey?'Gemini':'Groq'} AI が解析中...</div></div>`;
+  setAiStatus(`${geminiApiKey?'Gemini':'Groq'} AI が解析中...`);
 
   let errorMsg = null;
   pendingImageData = null;
@@ -1262,8 +1263,30 @@ async function analyzeReceipt(file) {
   const processed = await preprocessImage(file);
   const base64    = await fileToBase64(processed);
   const today     = localDateStr();
-  if (geminiApiKey) return __geminiFetch(base64, today, geminiApiKey, 0);
+  if (geminiApiKey) {
+    try {
+      return await __geminiFetch(base64, today, geminiApiKey);
+    } catch (e) {
+      // Geminiがどのモデルでも使えない時（無料枠ゼロ・キー無効など）は
+      // Groqキーがあれば自動で切り替える。アプリが止まらないようにするため。
+      if (!groqApiKey) throw e;
+      console.warn('Gemini失敗 → Groqで再試行:', e.message);
+      setAiStatus('Groq AI が解析中...');
+      return __groqFetch(base64, today, groqApiKey, 0);
+    }
+  }
   return __groqFetch(base64, today, groqApiKey, 0);
+}
+
+// 解析中の表示を差し替える
+function setAiStatus(msg, sub) {
+  const rows = document.getElementById('ai-rows');
+  if (!rows) return;
+  rows.innerHTML = `<div style="text-align:center;padding:24px 0;">
+    <div class="spinner" style="margin:0 auto 10px;"></div>
+    <div style="color:var(--text2);font-size:13px;">${escHtml(msg)}</div>
+    ${sub ? `<div style="color:var(--text3);font-size:11px;margin-top:6px;">${escHtml(sub)}</div>` : ''}
+  </div>`;
 }
 
 function buildReceiptPrompt(today) {
@@ -1292,8 +1315,53 @@ function buildReceiptPrompt(today) {
 
 // Gemini は思考ブロックを出さず、JSON形式での出力を指定できるので速く確実。
 // APIキーはURLではなくヘッダーで送る（履歴やログに残さないため）。
-async function __geminiFetch(base64, today, apiKey, attempt) {
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+//
+// 使えるモデルはキーによって違う（あるモデルだけ無料枠が0のことがある）ため、
+// キーで実際に使えるモデル一覧をAPIに問い合わせて、使える順に試す。
+let __geminiModels = null;
+async function listGeminiModels(apiKey) {
+  if (__geminiModels) return __geminiModels;
+  // 軽くて速い順の希望リスト（一覧に含まれていればこの順で優先する）
+  const prefer = ['gemini-2.5-flash','gemini-2.0-flash','gemini-2.5-flash-lite','gemini-flash-latest'];
+  let names = [];
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+      headers:{'x-goog-api-key':apiKey}
+    });
+    if (r.ok) {
+      const d = await r.json();
+      names = (d.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => String(m.name || '').replace(/^models\//, ''))
+        // 画像を読めない/用途違いのモデルを除く
+        .filter(n => /flash|pro/i.test(n) && !/embedding|aqa|imagen|veo|tts|audio|image-gen/i.test(n));
+    }
+  } catch(e) { console.warn('モデル一覧の取得に失敗:', e); }
+  const ordered = [
+    ...prefer.filter(p => names.includes(p)),
+    ...names.filter(n => !prefer.includes(n))
+  ];
+  __geminiModels = (ordered.length ? ordered : prefer).slice(0, 4);
+  return __geminiModels;
+}
+
+async function __geminiFetch(base64, today, apiKey) {
+  const models = await listGeminiModels(apiKey);
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      return await __geminiCall(model, base64, today, apiKey, 0);
+    } catch (e) {
+      lastErr = e;
+      if (e.__fatal) throw e;      // キー自体が無効 → モデルを変えても無駄
+      // それ以外（このモデルは無料枠0・存在しない等）は次のモデルを試す
+    }
+  }
+  throw lastErr || new Error('Geminiで解析できませんでした');
+}
+
+async function __geminiCall(model, base64, today, apiKey, attempt) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method:'POST',
     headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},
     body:JSON.stringify({
@@ -1306,16 +1374,21 @@ async function __geminiFetch(base64, today, apiKey, attempt) {
   });
 
   if (!res.ok) {
-    const e = await res.json().catch(()=>({}));
+    const e   = await res.json().catch(()=>({}));
     const msg = e.error?.message || `HTTP ${res.status}`;
-    if (res.status === 429 && attempt < 2) {
-      const rows = document.getElementById('ai-rows');
-      if (rows) rows.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text2);font-size:13px;">
-        ⏳ 少し混み合っています<br>
-        <span style="font-size:11px;color:var(--text3);">12秒後に自動で再試行します…</span>
-      </div>`;
-      await new Promise(r => setTimeout(r, 12000));
-      return __geminiFetch(base64, today, apiKey, attempt + 1);
+    // キーが無効・APIが有効化されていない → 何を試しても失敗するので即中断
+    if (res.status === 401 || res.status === 403) {
+      const err = new Error(msg); err.__fatal = true; throw err;
+    }
+    // 「limit: 0」はそのモデルの無料枠が最初から無い状態。待っても解消しないので
+    // 再試行せず、呼び出し元に返して次のモデルを試させる。
+    const zeroQuota = /limit:\s*0\b/.test(msg);
+    if (res.status === 429 && !zeroQuota && attempt < 2) {
+      const wm   = msg.match(/retry in ([0-9.]+)s/i);
+      const wait = wm ? Math.ceil(parseFloat(wm[1])) + 1 : 12;
+      setAiStatus('⏳ 少し混み合っています', `${wait}秒後に自動で再試行します…`);
+      await new Promise(r => setTimeout(r, wait * 1000));
+      return __geminiCall(model, base64, today, apiKey, attempt + 1);
     }
     throw new Error(msg);
   }
@@ -1347,11 +1420,7 @@ async function __groqFetch(base64, today, apiKey, attempt) {
     if (res.status === 429 && attempt < 2) {
       const wm   = msg.match(/try again in ([0-9.]+)s/i);
       const wait = wm ? Math.ceil(parseFloat(wm[1])) + 1 : 12;
-      const rows = document.getElementById('ai-rows');
-      if (rows) rows.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text2);font-size:13px;">
-        ⏳ 少し混み合っています<br>
-        <span style="font-size:11px;color:var(--text3);">${wait}秒後に自動で再試行します…</span>
-      </div>`;
+      setAiStatus('⏳ 少し混み合っています', `${wait}秒後に自動で再試行します…`);
       await new Promise(r => setTimeout(r, wait * 1000));
       return __groqFetch(base64, today, apiKey, attempt + 1);
     }
