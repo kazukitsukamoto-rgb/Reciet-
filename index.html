@@ -342,20 +342,35 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 
     <!-- 追加タブ -->
     <div id="tab-add" class="section active">
-      <div class="api-card" id="api-settings-card" style="display:none;">
+      <div class="api-card" id="api-settings-card">
         <div class="api-card-header" onclick="toggleApiSettings()">
-          <div class="section-label">🔑 AI設定（Groq・完全無料）</div>
+          <div class="section-label">🔑 AI設定（完全無料）</div>
           <span id="api-key-status" style="font-size:12px; color:var(--text3)">未設定</span>
         </div>
         <div id="api-settings-body" style="display:none; margin-top:12px;">
-          <div style="font-size:12px; color:var(--text2); margin-bottom:10px; line-height:1.7;">
+
+          <div style="font-size:12px; color:var(--text2); margin-bottom:6px; line-height:1.7;">
+            <strong style="color:var(--accent);">Gemini（推奨・速い）</strong><br>
+            <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent); font-weight:700;">aistudio.google.com/apikey</a> で無料取得
+          </div>
+          <div class="field" style="margin-bottom:10px;">
+            <label>Gemini APIキー（AIza...）</label>
+            <input type="password" id="gemini-key-input" placeholder="AIza..." style="font-family:'DM Mono',monospace; font-size:13px;">
+          </div>
+          <button class="api-save-btn" onclick="saveGeminiKey()">Geminiキーを保存</button>
+          <button onclick="clearGeminiKey()" style="margin-left:8px; padding:10px 12px; background:none; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; color:var(--text3); cursor:pointer; min-height:44px;">削除</button>
+
+          <div style="border-top:1px solid var(--border); margin:16px 0 12px;"></div>
+
+          <div style="font-size:12px; color:var(--text2); margin-bottom:6px; line-height:1.7;">
+            <strong>Groq（予備）</strong><br>
             <a href="https://console.groq.com/keys" target="_blank" style="color:var(--accent); font-weight:700;">console.groq.com/keys</a> で無料取得
           </div>
           <div class="field" style="margin-bottom:10px;">
-            <label>APIキーを入力（gsk_...）</label>
+            <label>Groq APIキー（gsk_...）</label>
             <input type="password" id="api-key-input" placeholder="gsk_..." style="font-family:'DM Mono',monospace; font-size:13px;">
           </div>
-          <button class="api-save-btn" onclick="saveApiKey()">保存する</button>
+          <button class="api-save-btn" onclick="saveApiKey()">Groqキーを保存</button>
           <button onclick="clearApiKey()" style="margin-left:8px; padding:10px 12px; background:none; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; color:var(--text3); cursor:pointer; min-height:44px;">削除</button>
         </div>
       </div>
@@ -529,7 +544,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-08-09-02';
+const APP_BUILD = '2026-08-09-03';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -608,6 +623,7 @@ let firestoreUnsubs = [];
 let parentLastRead   = null;
 let currentEditId    = null;
 let groqApiKey       = null;
+let geminiApiKey     = null;
 let firestoreReady   = false; // Firestoreデータ読み込み完了フラグ
 
 // ===== Google ログイン =====
@@ -626,7 +642,7 @@ function signOutUser() {
     firestoreUnsubs = [];
     entries = []; payments = [];
     aiData = null; imageFile = null; pendingImageData = null;
-    groqApiKey = null; parentLastRead = null;
+    groqApiKey = null; geminiApiKey = null; parentLastRead = null;
     currentEditId = null; currentPersonFilter = '';
     firestoreReady = false; splashHidden = false;
     isParentMode = false; currentOwner = null;
@@ -733,8 +749,8 @@ auth.onAuthStateChanged(async user => {
     startFirestore();
     if (isParentMode) loadParentLastRead();
 
-    // GroqキーをFirestoreから自動読み込み
-    loadGroqKey();
+    // APIキーをFirestoreから自動読み込み
+    loadApiKeys();
   } else {
     setSplashProgress(80);
     document.getElementById('main-app').style.display = 'none';
@@ -797,29 +813,24 @@ function initTabsStickyPosition() {
   new ResizeObserver(update).observe(header);
 }
 
-// ===== GroqキーをFirestoreから読み込む =====
-async function loadGroqKey() {
-  try {
-    const doc = await db.collection('config').doc('groqKey').get();
-    if (doc.exists && doc.data().value) {
-      groqApiKey = doc.data().value;
-      // キーあり → カードは非表示のまま
-    } else {
-      groqApiKey = localStorage.getItem('groq_api_key');
-      if (!groqApiKey) showApiCard(); // キーなし → 入力欄を表示
-    }
-  } catch(e) {
-    console.error('Groqキー読み込みエラー:', e);
-    groqApiKey = localStorage.getItem('groq_api_key');
-    if (!groqApiKey) showApiCard();
-  }
+// ===== APIキーをFirestore（なければ端末内）から読み込む =====
+// Firestoreに置いておけば家族全員の端末で共有される。個人の端末だけで
+// 使いたい場合は localStorage にも保存できる。
+async function loadApiKeys() {
+  const fromFirestore = async docId => {
+    try {
+      const doc = await db.collection('config').doc(docId).get();
+      return (doc.exists && doc.data().value) || null;
+    } catch(e) { console.warn(docId + ' load error:', e); return null; }
+  };
+  groqApiKey   = await fromFirestore('groqKey')   || localStorage.getItem('groq_api_key');
+  geminiApiKey = await fromFirestore('geminiKey') || localStorage.getItem('gemini_api_key');
+  setApiKeyStatus();
+  if (!groqApiKey && !geminiApiKey) showApiCard(); // どちらも無ければ入力欄を開く
 }
 function showApiCard() {
-  const card = document.getElementById('api-settings-card');
-  if (card) {
-    card.style.display = 'block';
-    document.getElementById('api-settings-body').style.display = 'block';
-  }
+  const body = document.getElementById('api-settings-body');
+  if (body) body.style.display = 'block';
 }
 
 // ===== ヘッダーに今月合計 =====
@@ -1008,31 +1019,51 @@ function startFirestore() {
   firestoreUnsubs = unsubs;
 }
 
-// ===== Groq APIキー =====
+// ===== APIキー設定 =====
 function toggleApiSettings() {
   const b = document.getElementById('api-settings-body');
   b.style.display = b.style.display === 'none' ? 'block' : 'none';
 }
-function setApiKeyStatus(isSet) {
+// 実際に使われるAIを表示する（Geminiキーがあればそちらが優先）
+function setApiKeyStatus() {
   const el = document.getElementById('api-key-status');
-  el.textContent = isSet ? '設定済み ✓' : '未設定';
-  el.style.color  = isSet ? 'var(--accent)' : 'var(--text3)';
+  if (!el) return;
+  const label = geminiApiKey ? 'Gemini ✓' : (groqApiKey ? 'Groq ✓' : '未設定');
+  el.textContent = label;
+  el.style.color = (geminiApiKey || groqApiKey) ? 'var(--accent)' : 'var(--text3)';
+}
+function saveGeminiKey() {
+  const key = document.getElementById('gemini-key-input').value.trim();
+  if (!key) { showMessage('APIキーを入力してください','#e74c3c'); return; }
+  geminiApiKey = key;
+  localStorage.setItem('gemini_api_key', key);
+  document.getElementById('gemini-key-input').value = '';
+  document.getElementById('api-settings-body').style.display = 'none';
+  setApiKeyStatus();
+  showMessage('Geminiキーを保存しました');
+}
+function clearGeminiKey() {
+  if (!confirm('Geminiキーを削除しますか？')) return;
+  geminiApiKey = null;
+  localStorage.removeItem('gemini_api_key');
+  setApiKeyStatus();
+  document.getElementById('api-settings-body').style.display = 'block';
 }
 function saveApiKey() {
   const key = document.getElementById('api-key-input').value.trim();
   if (!key) { showMessage('APIキーを入力してください','#e74c3c'); return; }
-  groqApiKey = key; // メモリ上の変数も更新
+  groqApiKey = key;
   localStorage.setItem('groq_api_key', key);
   document.getElementById('api-key-input').value = '';
   document.getElementById('api-settings-body').style.display = 'none';
-  setApiKeyStatus(true);
-  showMessage('APIキーを保存しました');
+  setApiKeyStatus();
+  showMessage('Groqキーを保存しました');
 }
 function clearApiKey() {
-  if (!confirm('APIキーを削除しますか？')) return;
-  groqApiKey = null; // メモリ上の変数もクリア
+  if (!confirm('Groqキーを削除しますか？')) return;
+  groqApiKey = null;
   localStorage.removeItem('groq_api_key');
-  setApiKeyStatus(false);
+  setApiKeyStatus();
   document.getElementById('api-settings-body').style.display = 'block';
 }
 
@@ -1081,17 +1112,17 @@ async function selectOwner(ownerName) {
   const confirmBtn = document.getElementById('confirm-btn');
   card.style.display = 'block';
   confirmBtn.disabled = true;
-  rows.innerHTML = `<div style="text-align:center;padding:24px 0;"><div class="spinner" style="margin:0 auto 10px;"></div><div style="color:var(--text2);font-size:13px;">Groq AI が解析中...</div></div>`;
+  const hasKey = geminiApiKey || groqApiKey;
+  rows.innerHTML = `<div style="text-align:center;padding:24px 0;"><div class="spinner" style="margin:0 auto 10px;"></div><div style="color:var(--text2);font-size:13px;">${geminiApiKey?'Gemini':'Groq'} AI が解析中...</div></div>`;
 
-  const apiKey = groqApiKey || localStorage.getItem('groq_api_key');
   let errorMsg = null;
   pendingImageData = null;
 
   if (imageFile) pendingImageData = await compressForStorage(imageFile);
 
-  if (apiKey && imageFile) {
+  if (hasKey && imageFile) {
     try {
-      const result = await analyzeReceipt(imageFile, apiKey);
+      const result = await analyzeReceipt(imageFile);
       aiData = { ...result, owner: ownerName };
     } catch(err) {
       aiData = defaultAiData(ownerName);
@@ -1099,7 +1130,7 @@ async function selectOwner(ownerName) {
     }
   } else {
     aiData = defaultAiData(ownerName);
-    if (!apiKey) errorMsg = 'APIキー未設定 — 「AI設定」からキーを入力してください';
+    if (!hasKey) errorMsg = 'APIキー未設定 — 「AI設定」からキーを入力してください';
   }
   imageFile = null;
   confirmBtn.disabled = false;
@@ -1225,24 +1256,18 @@ async function preprocessImage(file) {
   });
 }
 
-// ===== Groq AI =====
+// ===== AI解析（Geminiキーがあれば優先、なければGroq） =====
 // 画像の前処理（重い）は1回だけ行い、レートリミット時はその結果を使って自動リトライする
-async function analyzeReceipt(file, apiKey) {
+async function analyzeReceipt(file) {
   const processed = await preprocessImage(file);
   const base64    = await fileToBase64(processed);
   const today     = localDateStr();
-  return __groqFetch(base64, today, apiKey, 0);
+  if (geminiApiKey) return __geminiFetch(base64, today, geminiApiKey, 0);
+  return __groqFetch(base64, today, groqApiKey, 0);
 }
 
-async function __groqFetch(base64, today, apiKey, attempt) {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-    body:JSON.stringify({model:'qwen/qwen3.6-27b', max_tokens:3000, temperature:0,
-      messages:[
-        {role:'system',content:'あなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
-        {role:'user',content:[
-          {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
-          {type:'text',text:`以下の問題があっても最善を尽くして読み取ること：手ブレ・ピンボケ・影・光の反射・薄い印字・シワ・手書き文字・背景の混入・特殊フォント・複雑なレイアウト。背景や別の紙が映り込んでいてもレシート部分だけを読むこと。
+function buildReceiptPrompt(today) {
+  return `以下の問題があっても最善を尽くして読み取ること：手ブレ・ピンボケ・影・光の反射・薄い印字・シワ・手書き文字・背景の混入・特殊フォント・複雑なレイアウト。背景や別の紙が映り込んでいてもレシート部分だけを読むこと。
 
 【ステップ1】以下の優先順位で合計金額を特定:
 1. 「合計」「お買上合計」「税込合計」「TOTAL」「請求金額」のラベルがある行 → 使用する
@@ -1262,7 +1287,55 @@ async function __groqFetch(base64, today, apiKey, attempt) {
 - 画質が悪く合計が全く読めない場合のみ: amount_confident=false
 - currency: "$"/"S$"/"SGD"/英語→"SGD"、"¥"/"円"/"JPY"/日本語→"JPY"
 - date: YYYY-MM-DD、不明なら"${today}"
-- category: 食品・スーパー→"食費"、飲食店・カフェ→"外食"、交通→"交通費"、薬局・雑貨→"日用品"、その他→"その他"`}
+- category: 食品・スーパー→"食費"、飲食店・カフェ→"外食"、交通→"交通費"、薬局・雑貨→"日用品"、その他→"その他"`;
+}
+
+// Gemini は思考ブロックを出さず、JSON形式での出力を指定できるので速く確実。
+// APIキーはURLではなくヘッダーで送る（履歴やログに残さないため）。
+async function __geminiFetch(base64, today, apiKey, attempt) {
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},
+    body:JSON.stringify({
+      contents:[{parts:[
+        {inline_data:{mime_type:'image/jpeg', data:base64}},
+        {text:buildReceiptPrompt(today)}
+      ]}],
+      generationConfig:{temperature:0, maxOutputTokens:600, responseMimeType:'application/json'}
+    })
+  });
+
+  if (!res.ok) {
+    const e = await res.json().catch(()=>({}));
+    const msg = e.error?.message || `HTTP ${res.status}`;
+    if (res.status === 429 && attempt < 2) {
+      const rows = document.getElementById('ai-rows');
+      if (rows) rows.innerHTML = `<div style="text-align:center;padding:24px 0;color:var(--text2);font-size:13px;">
+        ⏳ 少し混み合っています<br>
+        <span style="font-size:11px;color:var(--text3);">12秒後に自動で再試行します…</span>
+      </div>`;
+      await new Promise(r => setTimeout(r, 12000));
+      return __geminiFetch(base64, today, apiKey, attempt + 1);
+    }
+    throw new Error(msg);
+  }
+
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const p = extractReceiptJson(text);
+  if (!p) throw new Error('JSONを取得できませんでした');
+  return normalizeReceipt(p, today);
+}
+
+async function __groqFetch(base64, today, apiKey, attempt) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+    body:JSON.stringify({model:'qwen/qwen3.6-27b', max_tokens:3000, temperature:0,
+      messages:[
+        {role:'system',content:'あなたはレシート・領収書のOCR専門家です。指示通りの順序で回答してください。'},
+        {role:'user',content:[
+          {type:'image_url',image_url:{url:`data:image/jpeg;base64,${base64}`}},
+          {type:'text',text:buildReceiptPrompt(today)}
         ]}
       ]})
   });
@@ -1287,54 +1360,51 @@ async function __groqFetch(base64, today, apiKey, attempt) {
 
   const data = await res.json();
   const raw  = data.choices?.[0]?.message?.content || '';
+  const p = extractReceiptJson(raw);
+  if (!p) throw new Error('JSONを取得できませんでした');
+  return normalizeReceipt(p, today);
+}
 
-  // qwen3は回答前に<think>...</think>の思考ブロックを出力することがある。
-  // max_tokensに達して閉じタグなしで打ち切られることもあるため、両パターンを除去する。
-  const text = raw
+// AIの返答からレシートJSONを取り出す。
+// qwen3は回答前に<think>...</think>の思考ブロックを出すことがあり、
+// その中の{}を誤ってJSONと拾わないよう、まず思考ブロックを除いた文面を探す。
+// 見つからなければ（思考ブロック内にJSONが埋まっている場合に備えて）元の文面も探す。
+function extractReceiptJson(raw) {
+  const stripped = raw
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<think>[\s\S]*/i, '')
     .trim();
 
-  let p = null;
-
-  // ① マークダウンのコードブロック内を優先検索（```json{...}```形式）
-  const cbm = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-  if (cbm) {
-    try { const t = JSON.parse(cbm[1]); if (t.amount !== undefined && t.payee !== undefined) p = t; } catch(e) {}
-  }
-
-  // ② ネストなし{}を検索（期待するJSONはフラット構造なので確実にマッチ）
-  if (!p) {
-    const re1 = /\{[^{}]*\}/g; let m;
-    while ((m = re1.exec(text)) !== null) {
-      try { const t = JSON.parse(m[0]); if (t.amount !== undefined && t.payee !== undefined) { p = t; break; } } catch(e) {}
+  const looksValid = t => t && t.amount !== undefined && t.payee !== undefined;
+  const scan = (src, re) => {
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      try { const t = JSON.parse(m[0]); if (looksValid(t)) return t; } catch(e) {}
     }
-  }
+    return null;
+  };
 
-  // ③ ネストありの非貪欲マッチ
-  if (!p) {
-    const re2 = /\{[\s\S]*?\}/g; let m;
-    while ((m = re2.exec(text)) !== null) {
-      try { const t = JSON.parse(m[0]); if (t.amount !== undefined && t.payee !== undefined) { p = t; break; } } catch(e) {}
-    }
+  for (const src of [stripped, raw]) {
+    if (!src) continue;
+    // マークダウンのコードブロック内を優先（```json{...}```形式）
+    const cb = src.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (cb) { try { const t = JSON.parse(cb[1]); if (looksValid(t)) return t; } catch(e) {} }
+    // ネストなし{}（期待するJSONはフラット構造）→ ネストありの順に探す
+    const found = scan(src, /\{[^{}]*\}/g) || scan(src, /\{[\s\S]*?\}/g);
+    if (found) return found;
   }
+  return null;
+}
 
-  // ④ /no_think が効かず思考ブロック内にJSONが埋まっている場合: rawから直接検索
-  if (!p) {
-    const re3 = /\{[^{}]*\}/g; let m;
-    while ((m = re3.exec(raw)) !== null) {
-      try { const t = JSON.parse(m[0]); if (t.amount !== undefined && t.payee !== undefined) { p = t; break; } } catch(e) {}
-    }
-  }
-  if (!p) {
-    const re4 = /\{[\s\S]*?\}/g; let m;
-    while ((m = re4.exec(raw)) !== null) {
-      try { const t = JSON.parse(m[0]); if (t.amount !== undefined && t.payee !== undefined) { p = t; break; } } catch(e) {}
-    }
-  }
-
-  if (!p) throw new Error('JSONを取得できませんでした');
-  return {date:p.date||today, payee:String(p.payee||''), amount:Number(String(p.amount).replace(/,/g,''))||0, cat:p.category||'食費', currency:(['SGD','JPY'].includes(p.currency)?p.currency:'SGD'), amountConfident:p.amount_confident!==false};
+function normalizeReceipt(p, today) {
+  return {
+    date: p.date || today,
+    payee: String(p.payee || ''),
+    amount: Number(String(p.amount).replace(/,/g,'')) || 0,
+    cat: p.category || '食費',
+    currency: ['SGD','JPY'].includes(p.currency) ? p.currency : 'SGD',
+    amountConfident: p.amount_confident !== false
+  };
 }
 function fileToBase64(file) {
   return new Promise((resolve,reject)=>{
