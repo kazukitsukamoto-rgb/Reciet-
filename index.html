@@ -162,12 +162,16 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 .paid-btn { width: 100%; padding: 13px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; min-height: 48px; }
 .paid-btn.locked { background: var(--surface2); color: var(--text3); cursor: default; }
 .paid-btn.zero { background: var(--surface2); color: var(--text3); cursor: default; }
-.history-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
 .history-title { font-size: 11px; font-weight: 700; color: var(--text3); letter-spacing: 0.08em; margin-bottom: 10px; }
 .history-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .history-item:last-child { border-bottom: none; }
 .history-date { font-size: 13px; color: var(--text2); }
 .history-amount { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 600; color: var(--accent2); }
+.history-btn { background: var(--surface2); border: none; color: var(--text2); font-size: 11px; font-weight: 700; padding: 5px 11px; border-radius: 20px; cursor: pointer; font-family: inherit; min-height: 30px; flex-shrink: 0; }
+.history-btn:active { background: var(--border); }
+.history-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.history-paid { display: inline-block; font-size: 10px; font-weight: 700; color: #2E7D32; background: #E8F5E0; padding: 2px 7px; border-radius: 6px; margin-left: 6px; vertical-align: middle; }
+.history-unpaid { display: inline-block; font-size: 10px; font-weight: 700; color: #E65100; background: #FFF3CD; padding: 2px 7px; border-radius: 6px; margin-left: 6px; vertical-align: middle; }
 
 /* ===== カテゴリ ===== */
 .dot-食費 { background: #5A8A2E; } .dot-外食 { background: #E07B3A; }
@@ -230,6 +234,9 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 /* ===== モーダル（親が担当者選択） ===== */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(26,26,24,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .modal-box { background: var(--bg); width: 88%; max-width: 320px; padding: 24px; border-radius: var(--radius); }
+/* 履歴は件数が増えるので、広めにして中だけスクロールさせる */
+.modal-box.wide { max-width: 360px; max-height: 78vh; display: flex; flex-direction: column; }
+.modal-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; min-height: 0; margin: 0 -4px; padding: 0 4px; }
 .owner-btn { width: 100%; padding: 15px; margin-bottom: 10px; background: var(--surface); color: var(--text); border: 2px solid var(--border); border-radius: var(--radius-sm); font-family: 'Noto Sans JP', sans-serif; font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 52px; }
 .owner-btn:active { background: var(--surface2); }
 .cancel-btn { width: 100%; padding: 12px; background: transparent; color: var(--text2); border: none; font-size: 13px; cursor: pointer; margin-top: 4px; }
@@ -432,25 +439,40 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
     <!-- 個人集計タブ -->
     <div id="tab-monthly" class="section">
       <div class="person-card">
-        <div class="person-card-top"><span class="person-card-name">Kazuki</span><span class="person-card-badge">未精算</span></div>
+        <div class="person-card-top">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+            <span class="person-card-name">Kazuki</span>
+            <button class="history-btn" onclick="openHistory('Kazuki')">📋 履歴</button>
+          </div>
+          <span class="person-card-badge">未精算</span>
+        </div>
         <div class="person-card-amount" id="total-kazuki">$0.00</div>
         <div class="person-card-sublabel">SGD — 前回精算以降の合計</div>
         <button class="paid-btn locked" id="paidbtn-kazuki" onclick="markAsPaid('Kazuki','SGD')">🔒 親のみ操作可</button>
-        <div class="history-section" id="history-kazuki" style="display:none;"></div>
       </div>
       <div class="person-card">
-        <div class="person-card-top"><span class="person-card-name">Kensei</span><span class="person-card-badge">未精算</span></div>
+        <div class="person-card-top">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+            <span class="person-card-name">Kensei</span>
+            <button class="history-btn" onclick="openHistory('Kensei')">📋 履歴</button>
+          </div>
+          <span class="person-card-badge">未精算</span>
+        </div>
         <div class="person-card-amount" id="total-kensei">$0.00</div>
         <div class="person-card-sublabel">SGD — 前回精算以降の合計</div>
         <button class="paid-btn locked" id="paidbtn-kensei" onclick="markAsPaid('Kensei','SGD')">🔒 親のみ操作可</button>
-        <div class="history-section" id="history-kensei" style="display:none;"></div>
       </div>
       <div class="person-card">
-        <div class="person-card-top"><span class="person-card-name">Hirotaka</span><span class="person-card-badge" id="hirotaka-badge">今月</span></div>
+        <div class="person-card-top">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+            <span class="person-card-name">Hirotaka</span>
+            <button class="history-btn" onclick="openHistory('Hirotaka')">📋 履歴</button>
+          </div>
+          <span class="person-card-badge" id="hirotaka-badge">今月</span>
+        </div>
         <div class="person-card-amount" id="total-hirotaka">¥0</div>
         <div class="person-card-sublabel">JPY — 今月の合計（月次精算）</div>
         <button class="paid-btn locked" id="paidbtn-hirotaka" onclick="markAsPaid('Hirotaka','JPY')">🔒 親のみ操作可</button>
-        <div class="history-section" id="history-hirotaka" style="display:none;"></div>
       </div>
     </div>
 
@@ -524,6 +546,16 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
   </div>
 </div>
 
+<!-- 過去の記録（Hirotaka=月ごとの合計 / Kazuki・Kensei=精算履歴） -->
+<div id="history-modal" class="modal-overlay">
+  <div class="modal-box wide">
+    <div class="section-label" id="history-modal-title" style="font-size:14px; margin-bottom:4px;">履歴</div>
+    <div id="history-modal-sub" class="history-sub" style="margin-bottom:14px;"></div>
+    <div class="modal-scroll" id="history-modal-body"></div>
+    <button class="cancel-btn" onclick="closeHistoryModal()" style="margin-top:12px;">閉じる</button>
+  </div>
+</div>
+
 <!-- Firebase SDK はここで読み込む（<head>に置くと、読み込み完了までスプラッシュ画面すら
      表示できず白い画面が長く続いてしまうため、本文を先に描画させてから読み込む） -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -546,7 +578,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-08-10-01';
+const APP_BUILD = '2026-08-10-02';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1952,14 +1984,80 @@ async function markAsPaid(owner,cur) {
   });
 }
 
-function renderPaymentHistory(owner) {
-  const sec=document.getElementById('history-'+owner.toLowerCase());
-  if(!isParentMode){sec.style.display='none';return;}
-  const list=payments.filter(p=>p.owner===owner).sort((a,b)=>b.date.localeCompare(a.date));
-  if(!list.length){sec.style.display='none';return;}
-  const fmt=p=>p.currency==='JPY'?`¥${Number(p.amount).toLocaleString('ja-JP')}`:`$${Number(p.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-  sec.style.display='block';
-  sec.innerHTML=`<div class="history-title">入金履歴</div>${list.map(p=>`<div class="history-item"><span class="history-date">${escHtml(p.date)}</span><span class="history-amount">${escHtml(fmt(p))}</span></div>`).join('')}`;
+// ===== 過去の記録（履歴ボタン） =====
+function fmtMoney(amount, currency) {
+  const n = Number(amount) || 0;
+  return currency === 'JPY'
+    ? `¥${n.toLocaleString('ja-JP')}`
+    : `$${n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+}
+// "2026-08" → "2026年8月"
+function fmtMonthLabel(ym) {
+  const [y, m] = String(ym).split('-');
+  return `${y}年${Number(m)}月`;
+}
+
+// Hirotaka：月ごとの合計（月次精算なので「その月にいくら使ったか」が知りたい）
+function buildMonthlyHistory(owner) {
+  const cur = ownerToCurrency(owner);
+  const byMonth = new Map();   // 月 → {合計, 件数}
+  entries
+    .filter(e => e.owner === owner && e.currency === cur && isApproved(e) && e.date)
+    .forEach(e => {
+      const m = e.date.substring(0, 7);
+      const cell = byMonth.get(m) || { total: 0, count: 0 };
+      cell.total += Number(e.amount) || 0;
+      cell.count += 1;
+      byMonth.set(m, cell);
+    });
+  if (!byMonth.size) return '<div class="empty">まだ記録がありません</div>';
+
+  // その月にいくら精算済みかを集計（同じ月に複数回精算していることもある）
+  const paidByMonth = new Map();
+  payments
+    .filter(p => p.owner === owner && p.month)
+    .forEach(p => paidByMonth.set(p.month, (paidByMonth.get(p.month) || 0) + (Number(p.amount) || 0)));
+
+  return [...byMonth.keys()].sort().reverse().map(m => {
+    const { total, count } = byMonth.get(m);
+    const paid  = paidByMonth.get(m) || 0;
+    const badge = paid >= total - 0.001
+      ? '<span class="history-paid">精算済み</span>'
+      : (paid > 0
+          ? `<span class="history-unpaid">残り ${escHtml(fmtMoney(total - paid, cur))}</span>`
+          : '<span class="history-unpaid">未精算</span>');
+    return `<div class="history-item">
+      <span class="history-date">${escHtml(fmtMonthLabel(m))}${badge}
+        <div class="history-sub">${count}件</div></span>
+      <span class="history-amount">${escHtml(fmtMoney(total, cur))}</span>
+    </div>`;
+  }).join('');
+}
+
+// Kazuki・Kensei：精算（入金）のたびの履歴
+function buildPaymentHistory(owner) {
+  const list = payments
+    .filter(p => p.owner === owner)
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  if (!list.length) return '<div class="empty">まだ精算の記録がありません</div>';
+  return list.map(p => `<div class="history-item">
+      <span class="history-date">${escHtml(p.date || '')}</span>
+      <span class="history-amount">${escHtml(fmtMoney(p.amount, p.currency))}</span>
+    </div>`).join('');
+}
+
+function openHistory(owner) {
+  const isMonthly = owner === 'Hirotaka';
+  document.getElementById('history-modal-title').textContent =
+    isMonthly ? `${owner} — 月ごとの合計` : `${owner} — 精算履歴`;
+  document.getElementById('history-modal-sub').textContent =
+    isMonthly ? '毎月まとめて精算' : '入金した日と金額';
+  document.getElementById('history-modal-body').innerHTML =
+    isMonthly ? buildMonthlyHistory(owner) : buildPaymentHistory(owner);
+  document.getElementById('history-modal').style.display = 'flex';
+}
+function closeHistoryModal() {
+  document.getElementById('history-modal').style.display = 'none';
 }
 
 function renderMonthly() {
@@ -1973,17 +2071,17 @@ function renderMonthly() {
   };
   const kz=getUnpaidTotal('Kazuki','SGD');
   document.getElementById('total-kazuki').textContent=`$${fmtS(kz)}`;
-  setBtn('paidbtn-kazuki','Kazuki','SGD',kz); renderPaymentHistory('Kazuki');
+  setBtn('paidbtn-kazuki','Kazuki','SGD',kz);
   const ks=getUnpaidTotal('Kensei','SGD');
   document.getElementById('total-kensei').textContent=`$${fmtS(ks)}`;
-  setBtn('paidbtn-kensei','Kensei','SGD',ks); renderPaymentHistory('Kensei');
+  setBtn('paidbtn-kensei','Kensei','SGD',ks);
   const ht=getThisMonthTotal('Hirotaka','JPY');
   document.getElementById('total-hirotaka').textContent=`¥${fmtJ(ht)}`;
   document.getElementById('hirotaka-badge').textContent=`${new Date().getMonth()+1}月`;
   // 今月ぶんの残額（合計 − 入金済み）で判定。二重精算を防ぎつつ、
   // 精算後にその月のレシートを追加した場合は差額だけ精算できる。
   const htRemain=Math.max(0, ht-getThisMonthPaid('Hirotaka','JPY'));
-  setBtn('paidbtn-hirotaka','Hirotaka','JPY',htRemain); renderPaymentHistory('Hirotaka');
+  setBtn('paidbtn-hirotaka','Hirotaka','JPY',htRemain);
 }
 
 function updateMonthFilter() {
