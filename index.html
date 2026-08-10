@@ -342,7 +342,9 @@ body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: va
 
     <!-- 追加タブ -->
     <div id="tab-add" class="section active">
-      <div class="api-card" id="api-settings-card">
+      <!-- APIキーはFirestore(config/geminiKey・config/groqKey)で管理するため普段は隠す。
+           キーがどこにも無い時だけ showApiCard() で表示して入力できるようにする。 -->
+      <div class="api-card" id="api-settings-card" style="display:none;">
         <div class="api-card-header" onclick="toggleApiSettings()">
           <div class="section-label">🔑 AI設定（完全無料）</div>
           <span id="api-key-status" style="font-size:12px; color:var(--text3)">未設定</span>
@@ -544,7 +546,7 @@ const auth = firebase.auth();
 
 // アプリのビルド識別子。コードを変更してpushする度に必ず新しい値に変える。
 // （下の自動更新チェックがこの値をサーバー上のHTMLと比較して、新しいバージョンを検知する）
-const APP_BUILD = '2026-08-09-05';
+const APP_BUILD = '2026-08-10-01';
 
 // ① オフライン対応：ネットなしでも動作、復帰時に自動同期
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -828,8 +830,11 @@ async function loadApiKeys() {
   setApiKeyStatus();
   if (!groqApiKey && !geminiApiKey) showApiCard(); // どちらも無ければ入力欄を開く
 }
+// キーがどこにも無い時だけ、AI設定カードを画面に出して入力できるようにする
 function showApiCard() {
+  const card = document.getElementById('api-settings-card');
   const body = document.getElementById('api-settings-body');
+  if (card) card.style.display = 'block';
   if (body) body.style.display = 'block';
 }
 
@@ -1051,7 +1056,7 @@ function clearGeminiKey() {
   localStorage.removeItem('gemini_models');
   localStorage.removeItem('gemini_api_key');
   setApiKeyStatus();
-  document.getElementById('api-settings-body').style.display = 'block';
+  showApiCard();
 }
 function saveApiKey() {
   const key = document.getElementById('api-key-input').value.trim();
@@ -1068,7 +1073,7 @@ function clearApiKey() {
   groqApiKey = null;
   localStorage.removeItem('groq_api_key');
   setApiKeyStatus();
-  document.getElementById('api-settings-body').style.display = 'block';
+  showApiCard();
 }
 
 // ===== タブ切替 =====
